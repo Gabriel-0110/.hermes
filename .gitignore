@@ -69,14 +69,7 @@ cron/output/
 cron/.tick.lock
 cron/jobs.json
 memories/
-
-# Publish team definitions, but keep local-only artifacts protected by folder-level ignores.
-!teams/
-!teams/README.md
-!teams/*/
-!teams/*/.gitignore
-!teams/trading-desk/
-!teams/trading-desk/**
+skills/.hub/index-cache/
 
 # Gateway / app state
 channel_directory.json
