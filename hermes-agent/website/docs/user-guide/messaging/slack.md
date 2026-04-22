@@ -46,6 +46,7 @@ Navigate to **Features → OAuth & Permissions** in the sidebar. Scroll to **Sco
 | Scope | Purpose |
 |-------|---------|
 | `chat:write` | Send messages as the bot |
+| `commands` | Register and receive `/hermes` slash commands |
 | `app_mentions:read` | Detect when @mentioned in channels |
 | `channels:history` | Read messages in public channels the bot is in |
 | `channels:read` | List and get info about public channels |
@@ -114,7 +115,26 @@ Without these events, Slack simply never delivers channel messages to the bot.
 
 ---
 
-## Step 5: Enable the Messages Tab
+## Step 5: Add the `/hermes` Slash Command
+
+If you want to use Hermes commands from Slack's slash-command UI, you must register
+the `/hermes` command in your Slack app. Without this, Slack itself will reject
+`/hermes ...` before Hermes ever sees it.
+
+1. In the sidebar, go to **Features → Slash Commands**
+2. Click **Create New Command**
+3. Set **Command** to `/hermes`
+4. Save the command and reinstall the app to the workspace if Slack prompts you
+
+:::tip
+Hermes handles `/hermes` through Socket Mode after Slack routes the command to the app.
+If Slack says "`/hermes` is not a valid command", the slash command has not been added
+to the app in that workspace yet.
+:::
+
+---
+
+## Step 6: Enable the Messages Tab
 
 This step enables direct messages to the bot. Without it, users see **"Sending messages to this app has been turned off"** when trying to DM the bot.
 
@@ -129,7 +149,7 @@ Even with all the correct scopes and event subscriptions, Slack will not allow u
 
 ---
 
-## Step 6: Install App to Workspace
+## Step 7: Install App to Workspace
 
 1. In the sidebar, go to **Settings → Install App**
 2. Click **Install to Workspace**
@@ -144,7 +164,7 @@ to take effect. The Install App page will show a banner prompting you to do so.
 
 ---
 
-## Step 7: Find User IDs for the Allowlist
+## Step 8: Find User IDs for the Allowlist
 
 Hermes uses Slack **Member IDs** (not usernames or display names) for the allowlist.
 
@@ -159,7 +179,7 @@ Member IDs look like `U01ABC2DEF3`. You need your own Member ID at minimum.
 
 ---
 
-## Step 8: Configure Hermes
+## Step 9: Configure Hermes
 
 Add the following to your `~/.hermes/.env` file:
 
@@ -190,7 +210,7 @@ sudo hermes gateway install --system   # Linux only: boot-time system service
 
 ---
 
-## Step 9: Invite the Bot to Channels
+## Step 10: Invite the Bot to Channels
 
 After starting the gateway, you need to **invite the bot** to any channel where you want it to respond:
 
@@ -266,10 +286,14 @@ Set to `false` if you want a collaborative mode where the entire channel shares 
 
 ```yaml
 slack:
-  # Require @mention in channels (this is the default behavior;
-  # the Slack adapter enforces @mention gating in channels regardless,
-  # but you can set this explicitly for consistency with other platforms)
+  # Require @mention in channels (default: true)
+  # Set to false if you want Hermes to answer normal channel messages
+  # without @mention.
   require_mention: true
+
+  # Optional: only allow no-mention replies in specific channels.
+  # Accepts a comma-separated string or YAML list of channel IDs.
+  free_response_channels: ""
 
   # Custom mention patterns that trigger the bot
   # (in addition to the default @mention detection)
@@ -282,7 +306,13 @@ slack:
 ```
 
 :::info
-Unlike Discord and Telegram, Slack does not have a `free_response_channels` equivalent. The Slack adapter requires `@mention` to start a conversation in channels. However, once the bot has an active session in a thread, subsequent thread replies do not require a mention. In DMs, the bot always responds without needing a mention.
+Slack supports the same two gating modes as the other chat adapters:
+
+- `slack.require_mention: true` keeps channel replies mention-gated.
+- `slack.require_mention: false` lets Hermes reply to normal channel messages.
+- `slack.free_response_channels` lets you keep mention-gating on globally while allowing no-mention replies in selected channels.
+
+DMs always respond without needing a mention. In channels, once the bot is active in a thread, subsequent thread replies do not require a mention.
 :::
 
 ### Unauthorized User Handling
@@ -323,6 +353,7 @@ stt_enabled: true
 # Slack-specific settings
 slack:
   require_mention: true
+  free_response_channels: ""
   unauthorized_dm_behavior: "pair"
 
 # Platform config
@@ -424,6 +455,7 @@ Hermes supports voice on Slack:
 | Bot doesn't respond to DMs | Verify `message.im` is in your event subscriptions and the app is reinstalled |
 | Bot works in DMs but not in channels | **Most common issue.** Add `message.channels` and `message.groups` to event subscriptions, reinstall the app, and invite the bot to the channel with `/invite @Hermes Agent` |
 | Bot doesn't respond to @mentions in channels | 1) Check `message.channels` event is subscribed. 2) Bot must be invited to the channel. 3) Ensure `channels:history` scope is added. 4) Reinstall the app after scope/event changes |
+| Bot should reply without @mention but stays silent in channels | Set `slack.require_mention: false` or add the channel ID to `slack.free_response_channels`, then restart the gateway |
 | Bot ignores messages in private channels | Add both the `message.groups` event subscription and `groups:history` scope, then reinstall the app and `/invite` the bot |
 | "Sending messages to this app has been turned off" in DMs | Enable the **Messages Tab** in App Home settings (see Step 5) |
 | "not_authed" or "invalid_auth" errors | Regenerate your Bot Token and App Token, update `.env` |
@@ -443,7 +475,7 @@ If the bot isn't working in channels, verify **all** of the following:
 5. ✅ `groups:history` scope is added (for private channels)
 6. ✅ App was **reinstalled** after adding scopes/events
 7. ✅ Bot was **invited** to the channel (`/invite @Hermes Agent`)
-8. ✅ You are **@mentioning** the bot in your message
+8. ✅ You are **@mentioning** the bot in your message, or you explicitly disabled mention-gating with `slack.require_mention: false` / `slack.free_response_channels`
 
 ---
 

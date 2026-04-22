@@ -506,6 +506,20 @@ class TestMessageRouting:
         adapter.handle_message.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_channel_message_processed_when_require_mention_disabled(self, adapter):
+        """Channel messages should pass through when mention gating is disabled."""
+        adapter.config.extra["require_mention"] = False
+        event = {
+            "text": "just talking",
+            "user": "U_USER",
+            "channel": "C123",
+            "channel_type": "channel",
+            "ts": "1234567890.000001",
+        }
+        await adapter._handle_slack_message(event)
+        adapter.handle_message.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_channel_mention_strips_bot_id(self, adapter):
         """When mentioned in a channel, the bot mention should be stripped."""
         event = {

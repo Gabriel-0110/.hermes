@@ -131,6 +131,7 @@ This functions as the primary coordination and decision layer of the platform.
 - gather and interpret market context
 - summarize price action, volatility, structure, liquidity, volume, sentiment, and catalysts
 - compare signals across exchanges, timeframes, and sources
+- run forward-looking market scenario forecasting from normalized time-series inputs
 - prepare context packages for other agents
 
 #### Typical outputs
@@ -138,6 +139,7 @@ This functions as the primary coordination and decision layer of the platform.
 - asset intelligence summaries
 - catalyst watchlists
 - directional confidence notes
+- forecast scenario packages with explicit uncertainty bands
 
 ### 5.3 Portfolio Monitor Agent
 #### Responsibilities
@@ -161,6 +163,7 @@ This functions as the primary coordination and decision layer of the platform.
 - turn raw market patterns into executable rules or soft decision frameworks
 - maintain strategy templates by regime, asset, volatility condition, or timeframe
 - support backtesting and forward-testing workflows
+- consume research-generated forecast context without owning the forecasting runtime itself
 
 ---
 
@@ -187,9 +190,9 @@ This provides the platform with:
 
 ---
 
-## 7. Twelve Shared Resources
+## 7. Thirteen Shared Resources / Feature-Combos
 
-Below is the confirmed list of the **12 core shared resources** consumed across the Hermes agent ecosystem.
+Below is the confirmed list of the **13 core shared resources / feature-combos** consumed across the Hermes agent ecosystem.
 
 ### 1. Market Price Feed
 Live and historical OHLCV, ticker, and price-stream data used for directional context, regime analysis, and signal generation.
@@ -227,8 +230,11 @@ Order placement, cancellation, modification, fill status, exchange metadata, acc
 ### 12. Memory / Knowledge / Research Store
 Persisted research notes, agent memory, prior decisions, trade rationales, post-mortems, learned patterns, and reusable internal knowledge.
 
-### Why these 12 matter
-These twelve resources form the shared decision foundation for Hermes. Rather than requiring each agent to integrate raw sources independently, the platform standardizes them into reusable tools, skills, and internal service contracts so that research, trading, risk, strategy, and monitoring operate from a common intelligence base.
+### 13. Forecasting / Time-Series Projection Engine
+Forward-looking numeric projection capability built on normalized historical series. This layer now includes Amazon Chronos-2 for zero-shot or light-touch forecasting and should be owned by the Market Research Agent as a research/intelligence function, with Strategy consuming the resulting forecast packages rather than invoking Chronos-2 directly.
+
+### Why these 13 matter
+These thirteen resources / feature-combos form the shared decision foundation for Hermes. Rather than requiring each agent to integrate raw sources independently, the platform standardizes them into reusable tools, skills, and internal service contracts so that research, trading, risk, strategy, and monitoring operate from a common intelligence base.
 
 ---
 

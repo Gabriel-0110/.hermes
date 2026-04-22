@@ -65,6 +65,12 @@ The role profiles under `~/.hermes/profiles/` now:
 - expect a profile-local `LITELLM_API_KEY`
 - no longer depend on inline upstream provider secrets in `config.yaml`
 
+The root workspace config at `~/.hermes/config.yaml` now follows the same pattern for the default non-profile experience:
+
+- `model.provider: litellm`
+- default route `orchestrator-default`
+- shared `litellm_gateway` routes for all five primary roles
+
 ## 5. Verify a key
 
 After generating a key, verify spend and metadata through LiteLLM:

@@ -34,12 +34,16 @@ model_list:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: portfolio-fallback-1
     litellm_params:
       model: lm_studio/google/gemma-4-e4b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: portfolio-fallback-2
     litellm_params:
@@ -61,18 +65,24 @@ model_list:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: strategy-default
     litellm_params:
       model: lm_studio/google/gemma-4-e4b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: strategy-fallback-1
     litellm_params:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: strategy-fallback-2
     litellm_params:

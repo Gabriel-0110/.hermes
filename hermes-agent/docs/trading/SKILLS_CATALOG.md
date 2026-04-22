@@ -16,6 +16,7 @@
 - `catalyst_detection`: uses `get_crypto_news`, `get_general_news`, `get_event_risk_summary`.
 - `narrative_shift_detection`: uses `get_social_sentiment`, `get_crypto_news`.
 - `cross_asset_context`: uses `get_crypto_prices`, `get_market_overview`, `get_ohlcv`.
+- `chronos2_forecasting`: uses wrapped historical time-series inputs and the shared Chronos-2 skill to produce low/median/high forward scenarios for research.
 
 ## Portfolio skills
 

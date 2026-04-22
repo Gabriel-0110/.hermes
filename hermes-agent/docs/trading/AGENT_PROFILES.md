@@ -13,8 +13,9 @@
 - Role: market context, regime, catalyst, and watchlist intelligence.
 - Allowed tools: `get_crypto_prices`, `get_market_overview`, `get_ohlcv`, `get_crypto_news`, `get_general_news`, `get_macro_series`, `get_macro_observations`, `get_macro_regime_summary`, `get_defi_protocols`, `get_defi_protocol_details`, `get_defi_chain_overview`, `get_defi_yields`, `get_defi_dex_overview`, `get_defi_fees_overview`, `get_defi_regime_summary`, `get_social_sentiment`, `get_onchain_wallet_data`, `get_smart_money_flows`, `get_event_risk_summary`, `send_daily_summary`, `get_tradingview_alert_context`.
 - Forbidden actions: trade placement, direct execution access, direct secret access.
-- Skills: `market_regime_analysis`, `watchlist_generation`, `catalyst_detection`, `narrative_shift_detection`, `cross_asset_context`.
-- Expected outputs: regime summary, catalyst summary, ranked watchlist, risk notes, research memo.
+- Skills: `market_regime_analysis`, `watchlist_generation`, `catalyst_detection`, `narrative_shift_detection`, `cross_asset_context`, `chronos2_forecasting`.
+- Expected outputs: regime summary, catalyst summary, ranked watchlist, risk notes, research memo, forecast scenario package.
+- Chronos-2 ownership: Amazon Chronos-2 forecasting belongs to `market_researcher`; it is a research/intelligence capability that produces forecast context for downstream strategy work rather than direct trade actions.
 
 ## portfolio_monitor
 
@@ -39,6 +40,7 @@
 - Forbidden actions: direct execution, execution-status access, direct notification delivery, raw unwrapped news access.
 - Skills: `setup_scanning`, `signal_scoring`, `trade_plan_generation`, `regime_matching`, `invalidation_modeling`.
 - Expected outputs: structured trade candidate, confidence score, entry/stop/target plan, invalidation logic.
+- Forecasting boundary: `strategy_agent` may consume forecast packages from research, but does not own the Chronos-2 forecasting skill directly.
 
 ## TradingView ingestion rule
 

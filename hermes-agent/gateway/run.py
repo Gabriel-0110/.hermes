@@ -3494,17 +3494,23 @@ class GatewayRunner:
         # Skip for webhooks - they deliver directly to configured targets (github_comment, etc.)
         if not history and source.platform and source.platform != Platform.LOCAL and source.platform != Platform.WEBHOOK:
             platform_name = source.platform.value
-            env_key = f"{platform_name.upper()}_HOME_CHANNEL"
-            if not os.getenv(env_key):
+            home_channel = self.config.get_home_channel(source.platform)
+            if not home_channel:
                 adapter = self.adapters.get(source.platform)
                 if adapter:
+                    set_home_hint = (
+                        "Send Hermes a DM or @mention it in this channel after inviting the bot here, "
+                        "or ignore to skip."
+                        if source.platform == Platform.SLACK
+                        else "Type /sethome to make this chat your home channel, "
+                        "or ignore to skip."
+                    )
                     await adapter.send(
                         source.chat_id,
                         f"📬 No home channel is set for {platform_name.title()}. "
                         f"A home channel is where Hermes delivers cron job results "
                         f"and cross-platform messages.\n\n"
-                        f"Type /sethome to make this chat your home channel, "
-                        f"or ignore to skip."
+                        f"{set_home_hint}"
                     )
         
         # -----------------------------------------------------------------
@@ -4779,7 +4785,7 @@ class GatewayRunner:
         
         env_key = f"{platform_name.upper()}_HOME_CHANNEL"
         
-        # Save to config.yaml
+        # Save to config.yaml in the persisted gateway config shape.
         try:
             import yaml
             config_path = _hermes_home / 'config.yaml'
@@ -4787,10 +4793,36 @@ class GatewayRunner:
             if config_path.exists():
                 with open(config_path, encoding="utf-8") as f:
                     user_config = yaml.safe_load(f) or {}
-            user_config[env_key] = chat_id
+
+            platforms_cfg = user_config.get("platforms")
+            if not isinstance(platforms_cfg, dict):
+                platforms_cfg = {}
+                user_config["platforms"] = platforms_cfg
+
+            platform_cfg = platforms_cfg.get(platform_name)
+            if not isinstance(platform_cfg, dict):
+                platform_cfg = {}
+                platforms_cfg[platform_name] = platform_cfg
+
+            platform_cfg["home_channel"] = {
+                "platform": platform_name,
+                "chat_id": str(chat_id),
+                "name": chat_name,
+            }
             atomic_yaml_write(config_path, user_config)
+
             # Also set in the current environment so it takes effect immediately
             os.environ[env_key] = str(chat_id)
+            if source.platform:
+                platform_cfg_obj = self.config.platforms.get(source.platform)
+                if platform_cfg_obj is None:
+                    platform_cfg_obj = PlatformConfig(enabled=True)
+                    self.config.platforms[source.platform] = platform_cfg_obj
+                platform_cfg_obj.home_channel = HomeChannel(
+                    platform=source.platform,
+                    chat_id=str(chat_id),
+                    name=chat_name,
+                )
         except Exception as e:
             return f"Failed to save home channel: {e}"
         
