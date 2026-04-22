@@ -2,6 +2,7 @@
 *
 !*/
 !.gitignore
+!README.md
 !*/IDENTITY.md
 !*/ROLE_SKILLS.yaml
 !*/SOUL.md
@@ -27,3 +28,19 @@
 */state.db
 */state.db-shm
 */state.db-wal
+
+# Ignore generated runtime directories inside each profile.
+*/bin/
+*/cache/
+*/cron/
+*/home/
+*/logs/
+*/memories/
+*/plans/
+*/platforms/
+*/sandboxes/
+*/sessions/
+*/skills/
+*/skills_backup_before_role_prune/
+*/skins/
+*/workspace/
