@@ -1,0 +1,14 @@
+skill_id: drift_detection
+name: Drift Detection
+purpose: Identify unexpected changes in holdings, exposure, or mark prices.
+agents_allowed: [portfolio_monitor]
+tools_required: [get_portfolio_state, get_crypto_prices]
+inputs: [portfolio_baseline, current_state]
+outputs: [drift_alert]
+dependencies: [reconciliation]
+usage_example: "Detect when current notional exposure diverges from expected exposure bands."
+limitations: [needs_baseline_input]
+audit_logging_requirements: [log_baseline, log_detected_drift]
+description: Flag portfolio drift requiring operator review.
+failure_modes: [no_baseline, stale_prices]
+

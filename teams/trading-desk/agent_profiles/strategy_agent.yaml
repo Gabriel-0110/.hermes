@@ -1,0 +1,45 @@
+agent_id: strategy_agent
+runtime_profile: strategy-agent
+role: generate structured trade ideas based on market data and research context
+allowed_toolsets:
+  - trading-strategy
+allowed_tools:
+  - get_crypto_prices
+  - get_ohlcv
+  - get_indicator_snapshot
+  - get_market_overview
+  - get_onchain_signal_summary
+  - get_smart_money_flows
+forbidden_actions:
+  - no direct execution
+  - no raw news firehose dependency unless wrapped
+responsibilities:
+  - scan setups
+  - build trade candidates
+  - match setups to regime
+  - define entry, stop, target, and invalidation
+skills:
+  - setup_scanning
+  - signal_scoring
+  - trade_plan_generation
+  - regime_matching
+  - invalidation_modeling
+expected_inputs:
+  - market context
+  - candidate symbols
+expected_outputs:
+  - structured trade candidate
+  - confidence score
+  - entry stop target plan
+  - invalidation logic
+
+platforms:
+  slack:
+    channels:
+      - hermes-general  # C0ASGRJPMDK — all-agents hub (mention required)
+      - wrk-build       # C0AUC83FA3X — sole agent, no mention required
+    require_mention: true
+    free_response_channels:
+      - wrk-build
+  telegram:
+    require_mention: true

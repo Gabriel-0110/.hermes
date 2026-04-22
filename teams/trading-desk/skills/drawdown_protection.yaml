@@ -1,0 +1,14 @@
+skill_id: drawdown_protection
+name: Drawdown Protection
+purpose: Tighten trade or portfolio limits when drawdown conditions worsen.
+agents_allowed: [risk_manager]
+tools_required: [get_portfolio_state]
+inputs: [portfolio_state, drawdown_limit]
+outputs: [drawdown_actions]
+dependencies: []
+usage_example: "Block new risk if account drawdown breaches the daily limit."
+limitations: [requires_drawdown_source]
+audit_logging_requirements: [log_drawdown_state, log_actions]
+description: Drawdown-aware gating skill.
+failure_modes: [portfolio_state_missing]
+

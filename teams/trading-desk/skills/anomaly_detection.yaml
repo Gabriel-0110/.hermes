@@ -1,0 +1,14 @@
+skill_id: anomaly_detection
+name: Anomaly Detection
+purpose: Surface unusual portfolio or wallet behavior.
+agents_allowed: [portfolio_monitor]
+tools_required: [get_wallet_transactions, get_onchain_wallet_data, send_notification]
+inputs: [wallet, portfolio_state]
+outputs: [anomaly_report]
+dependencies: []
+usage_example: "Alert if a watched wallet suddenly emits a burst of outbound transfers."
+limitations: [rules_based_not_model_based]
+audit_logging_requirements: [log_trigger_condition, log_notification]
+description: Simple anomaly checks for the monitoring layer.
+failure_modes: [incomplete_wallet_data]
+

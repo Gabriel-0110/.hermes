@@ -1,0 +1,14 @@
+skill_id: pretrade_risk_validation
+name: Pretrade Risk Validation
+purpose: Validate trade proposals against volatility, event risk, and current exposure.
+agents_allowed: [risk_manager]
+tools_required: [get_ohlcv, get_volatility_metrics, get_event_risk_summary, get_portfolio_state]
+inputs: [trade_candidate, portfolio_state]
+outputs: [approval_state, risk_flags]
+dependencies: [concentration_analysis, event_risk_control]
+usage_example: "Approve or reject a BTC long proposal before routing to execution."
+limitations: [heuristic_thresholds]
+audit_logging_requirements: [log_trade_candidate, log_approval_state]
+description: Main risk gate for pre-trade decisions.
+failure_modes: [missing_trade_plan, stale_portfolio_state]
+

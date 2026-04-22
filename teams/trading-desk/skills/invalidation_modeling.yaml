@@ -1,0 +1,13 @@
+skill_id: invalidation_modeling
+name: Invalidation Modeling
+purpose: Define the conditions that would invalidate a proposed trade.
+agents_allowed: [strategy_agent]
+tools_required: [get_ohlcv, get_indicator_snapshot]
+inputs: [trade_plan]
+outputs: [invalidation_logic]
+dependencies: []
+usage_example: "Set invalidation below the prior structure low and volatility band."
+limitations: [simple_market_structure_rules]
+audit_logging_requirements: [log_trade_plan, log_invalidation]
+description: Formalize why and when a strategy view is wrong.
+failure_modes: [weak_structure_signal]

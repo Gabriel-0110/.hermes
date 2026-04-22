@@ -1,0 +1,51 @@
+agent_id: risk_manager
+runtime_profile: risk-manager
+role: hard gatekeeper for risk controls
+allowed_toolsets:
+  - trading-risk
+allowed_tools:
+  - get_ohlcv
+  - get_volatility_metrics
+  - get_correlation_inputs
+  - get_event_risk_summary
+  - get_social_sentiment
+  - get_onchain_wallet_data
+  - get_smart_money_flows
+  - get_portfolio_state
+  - get_crypto_prices
+forbidden_actions:
+  - no bypass of workflow
+  - no raw direct execution
+responsibilities:
+  - validate proposed trades
+  - size risk
+  - detect event risk, volatility risk, and concentration risk
+  - approve, reject, or resize proposals
+skills:
+  - pretrade_risk_validation
+  - position_sizing
+  - drawdown_protection
+  - concentration_analysis
+  - volatility_risk_control
+  - event_risk_control
+expected_inputs:
+  - trade proposal
+  - portfolio state
+expected_outputs:
+  - risk approval or rejection
+  - max size recommendation
+  - stop or invalidation guidance
+  - risk flags
+
+platforms:
+  slack:
+    channels:
+      - hermes-general   # C0ASGRJPMDK — all-agents hub (mention required)
+      - hub-escalations  # C0AU980UBEF — shared with orchestrator (mention required)
+      - wrk-review       # C0AV9UK29FA — sole agent, no mention required
+    require_mention: true
+    free_response_channels:
+      - wrk-review
+  telegram:
+    require_mention: true
+

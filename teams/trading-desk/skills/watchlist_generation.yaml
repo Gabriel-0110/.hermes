@@ -1,0 +1,14 @@
+skill_id: watchlist_generation
+name: Watchlist Generation
+purpose: Create a ranked watchlist from market, narrative, and onchain context.
+agents_allowed: [market_researcher]
+tools_required: [get_crypto_prices, get_market_overview, get_smart_money_flows]
+inputs: [universe, constraints]
+outputs: [ranked_watchlist]
+dependencies: [market_regime_analysis, catalyst_detection]
+usage_example: "Rank BTC, ETH, SOL by wrapped market and smart-money context."
+limitations: [ranking_heuristics_are_placeholder]
+audit_logging_requirements: [log_universe, log_ranked_symbols]
+description: Build a watchlist suitable for the strategy layer.
+failure_modes: [empty_universe, missing_confirmation_data]
+

@@ -1,0 +1,14 @@
+skill_id: audit_logging
+name: Audit Logging
+purpose: Record tool usage, approvals, and workflow transitions in a consistent format.
+agents_allowed: [orchestrator_trader, market_researcher, portfolio_monitor, risk_manager, strategy_agent]
+tools_required: []
+inputs: [actor, action, payload_summary]
+outputs: [audit_record]
+dependencies: []
+usage_example: "Log that risk_manager rejected a trade because event risk was high."
+limitations: [requires_consistent_adoption_in_callers]
+audit_logging_requirements: [log_actor, log_action, log_timestamp, redact_sensitive_fields]
+description: Shared logging convention for future database or reporting sinks.
+failure_modes: [missing_context, redaction_gaps]
+

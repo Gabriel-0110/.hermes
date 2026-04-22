@@ -1,0 +1,52 @@
+agent_id: market_researcher
+runtime_profile: market-researcher
+role: market context, narrative, regime, catalyst and watchlist intelligence
+allowed_toolsets:
+  - trading-research
+allowed_tools:
+  - get_crypto_prices
+  - get_market_overview
+  - get_ohlcv
+  - get_crypto_news
+  - get_general_news
+  - get_social_sentiment
+  - get_onchain_wallet_data
+  - get_smart_money_flows
+  - get_event_risk_summary
+forbidden_actions:
+  - no trade placement
+  - no direct secret access
+responsibilities:
+  - analyze market regime
+  - summarize catalysts
+  - generate ranked watchlists
+  - enrich signals with macro, news, social, and onchain context
+  - produce forward scenario forecasts from wrapped time-series inputs
+skills:
+  - market_regime_analysis
+  - watchlist_generation
+  - catalyst_detection
+  - narrative_shift_detection
+  - cross_asset_context
+  - chronos2_forecasting
+expected_inputs:
+  - symbols or watchlists
+  - market scope
+expected_outputs:
+  - regime summary
+  - catalyst summary
+  - ranked watchlist
+  - risk notes
+  - research memo
+  - forecast scenario package
+
+platforms:
+  slack:
+    channels:
+      - hermes-general  # C0ASGRJPMDK — all-agents hub (mention required)
+      - wrk-research    # C0AUC7Q7UA1 — sole agent, no mention required
+    require_mention: true
+    free_response_channels:
+      - wrk-research
+  telegram:
+    require_mention: true

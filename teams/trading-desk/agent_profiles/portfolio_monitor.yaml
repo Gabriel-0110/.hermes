@@ -1,0 +1,47 @@
+agent_id: portfolio_monitor
+runtime_profile: portfolio-monitor
+role: source of truth for positions, balances, exposure and reconciliation
+allowed_toolsets:
+  - trading-portfolio
+allowed_tools:
+  - get_portfolio_state
+  - get_crypto_prices
+  - get_market_overview
+  - get_onchain_wallet_data
+  - get_wallet_transactions
+  - send_notification
+forbidden_actions:
+  - no discretionary strategy generation
+  - no direct raw secret exposure
+responsibilities:
+  - track holdings and PnL
+  - detect drift
+  - reconcile internal state with external account state
+  - surface anomalies
+skills:
+  - pnl_tracking
+  - exposure_tracking
+  - reconciliation
+  - drift_detection
+  - anomaly_detection
+expected_inputs:
+  - portfolio identifiers
+  - position snapshots
+expected_outputs:
+  - portfolio health summary
+  - PnL snapshot
+  - reconciliation report
+  - drift alert
+
+platforms:
+  slack:
+    channels:
+      - hermes-general  # C0ASGRJPMDK — all-agents hub (mention required)
+      - wrk-ops         # C0AUC91L0DT — sole agent, no mention required
+      - wrk-data        # C0AU08A9THV — sole agent, no mention required
+    require_mention: true
+    free_response_channels:
+      - wrk-ops
+      - wrk-data
+  telegram:
+    require_mention: true

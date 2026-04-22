@@ -1,0 +1,14 @@
+skill_id: trade_plan_generation
+name: Trade Plan Generation
+purpose: Produce a structured entry, stop, target, and invalidation plan.
+agents_allowed: [strategy_agent]
+tools_required: [get_crypto_prices, get_ohlcv, get_indicator_snapshot]
+inputs: [symbol, direction]
+outputs: [trade_plan]
+dependencies: [signal_scoring]
+usage_example: "Create a structured BTC trade plan for a continuation setup."
+limitations: [no_execution_side_effects]
+audit_logging_requirements: [log_symbol, log_trade_plan]
+description: Convert a setup into a structured proposal.
+failure_modes: [insufficient_market_context]
+

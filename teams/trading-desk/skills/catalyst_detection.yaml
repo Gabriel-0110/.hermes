@@ -1,0 +1,14 @@
+skill_id: catalyst_detection
+name: Catalyst Detection
+purpose: Summarize market-moving catalysts from wrapped crypto and macro news feeds.
+agents_allowed: [market_researcher]
+tools_required: [get_crypto_news, get_general_news, get_event_risk_summary]
+inputs: [query, assets]
+outputs: [catalyst_summary, risk_notes]
+dependencies: []
+usage_example: "Summarize catalysts affecting ETH over the next 24 hours."
+limitations: [headline_only_without_custom_nlp_pipeline]
+audit_logging_requirements: [log_query, log_top_catalysts]
+description: Convert multiple news feeds into an actionable catalyst memo.
+failure_modes: [provider_unavailable, noisy_headlines]
+

@@ -1,0 +1,15 @@
+skill_id: execution_requesting
+name: Execution Requesting
+purpose: Convert an approved action into an exchange execution via the CCXT-backed execution client.
+agents_allowed: [orchestrator_trader]
+tools_required: [place_order, get_execution_status, send_notification]
+inputs: [approved_action_plan, risk_approval]
+outputs: [execution_request, order_status]
+dependencies: [workflow_routing, decision_aggregation]
+usage_example: "Submit a risk-approved BTC spot buy to BitMart via the CCXT execution adapter."
+limitations: [bitmart_is_the_only_configured_exchange, spot_only_no_margin_or_futures]
+backend_implementation: CCXTExecutionClient in backend/integrations/execution/ccxt_client.py
+audit_logging_requirements: [log_request_payload, log_execution_status, log_order_id]
+description: Route a risk-approved action plan to the CCXT execution adapter and capture the resulting order status.
+failure_modes: [missing_risk_approval, exchange_credentials_not_configured, order_rejected_by_exchange]
+

@@ -1,0 +1,14 @@
+skill_id: event_risk_control
+name: Event Risk Control
+purpose: Block or reduce risk when catalysts or macro news elevate uncertainty.
+agents_allowed: [risk_manager]
+tools_required: [get_event_risk_summary, get_social_sentiment]
+inputs: [symbol, query]
+outputs: [event_risk_flags]
+dependencies: []
+usage_example: "Scale down exposure ahead of a high-risk market event."
+limitations: [headline_driven]
+audit_logging_requirements: [log_query, log_event_severity]
+description: Event-driven risk guardrail.
+failure_modes: [no_news_context]
+

@@ -1,0 +1,2 @@
+# Keep local dry-run and operator artifacts out of Git.
+dry-runs/

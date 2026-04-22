@@ -1,0 +1,14 @@
+skill_id: workflow_routing
+name: Workflow Routing
+purpose: Route requests and dependencies between trading agents without granting direct provider access.
+agents_allowed: [orchestrator_trader]
+tools_required: [list_trade_candidates, get_risk_approval, get_portfolio_state, get_execution_status]
+inputs: [goal, desk_state, agent_outputs]
+outputs: [next_step_plan, routed_tasks, execution_request]
+dependencies: [decision_aggregation]
+usage_example: "Collect research, strategy, risk, and portfolio outputs; decide whether to request execution or alert."
+limitations: [depends_on_other_agents, no_market_data_fetching]
+audit_logging_requirements: [log_requested_agents, log_tool_calls, log_execution_gate]
+description: Coordinate the workflow across the desk while keeping execution gated.
+failure_modes: [missing_agent_output, contradictory_signals, execution_adapter_unavailable]
+

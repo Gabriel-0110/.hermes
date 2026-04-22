@@ -1,0 +1,14 @@
+skill_id: regime_matching
+name: Regime Matching
+purpose: Filter or reshape setups according to current market regime.
+agents_allowed: [strategy_agent]
+tools_required: [get_market_overview, get_crypto_prices]
+inputs: [setup_candidates, regime_summary]
+outputs: [regime_matched_setups]
+dependencies: []
+usage_example: "Reject mean-reversion setups during a strong trend regime."
+limitations: [depends_on_research_or_market_overview_quality]
+audit_logging_requirements: [log_regime, log_filtered_setups]
+description: Align strategy output with market regime.
+failure_modes: [unknown_regime]
+

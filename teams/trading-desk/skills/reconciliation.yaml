@@ -1,0 +1,15 @@
+skill_id: reconciliation
+name: Reconciliation
+purpose: Compare internal portfolio state with exchange balances and onchain evidence.
+agents_allowed: [portfolio_monitor]
+tools_required: [get_portfolio_state, get_wallet_transactions, get_onchain_wallet_data, get_order_history]
+inputs: [portfolio_state, wallet]
+outputs: [reconciliation_report]
+dependencies: []
+usage_example: "Cross-check BitMart spot balances against internal position records and flag any drift."
+limitations: [exchange_reconciliation_limited_to_bitmart_via_ccxt, onchain_requires_configured_wallet_address]
+backend_implementation: CCXTExecutionClient.get_balances() in backend/integrations/execution/ccxt_client.py
+audit_logging_requirements: [log_wallet, log_exchange, log_mismatches]
+description: Surface mismatches between expected and observed portfolio state using live exchange and onchain data.
+failure_modes: [exchange_credentials_not_configured, wallet_not_mapped, incomplete_history]
+

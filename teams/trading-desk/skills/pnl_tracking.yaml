@@ -1,0 +1,14 @@
+skill_id: pnl_tracking
+name: PnL Tracking
+purpose: Maintain a normalized snapshot of current portfolio PnL.
+agents_allowed: [portfolio_monitor]
+tools_required: [get_portfolio_state, get_crypto_prices]
+inputs: [portfolio_state]
+outputs: [pnl_snapshot]
+dependencies: []
+usage_example: "Estimate mark-to-market PnL using internal portfolio state and price snapshots."
+limitations: [requires_portfolio_adapter_for_live_values]
+audit_logging_requirements: [log_account_id, log_mark_to_market]
+description: Summarize realized and unrealized PnL state.
+failure_modes: [portfolio_state_unavailable]
+

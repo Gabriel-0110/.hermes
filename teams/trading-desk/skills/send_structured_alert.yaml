@@ -1,0 +1,15 @@
+skill_id: send_structured_alert
+name: Send Structured Alert
+purpose: Emit operator-facing alerts through internal notification tooling.
+agents_allowed: [orchestrator_trader, portfolio_monitor]
+tools_required: [send_notification]
+inputs: [channel, severity, message, context]
+outputs: [delivery_status]
+dependencies: []
+usage_example: "Send a medium-severity drift alert to the desk channel with reconciliation context."
+limitations: [requires_telegram_bot_token_and_chat_id_env_vars, requires_slack_webhook_url_env_var]
+backend_implementation: TelegramNotificationClient and SlackNotificationClient in backend/integrations/notifications/
+audit_logging_requirements: [log_channel, log_message_type, log_delivery_result]
+description: Wrap notifications in a normalized alert envelope delivered via Telegram or Slack.
+failure_modes: [notification_credentials_not_configured, network_timeout]
+

@@ -1,0 +1,212 @@
+team_name: hermes-trading-desk
+version: 1
+source_of_truth:
+  identity: /Users/openclaw/.hermes/IDENTITY.md
+  user: /Users/openclaw/.hermes/USER.md
+  soul: /Users/openclaw/.hermes/SOUL.md
+  team_manifest: /Users/openclaw/.hermes/teams/trading-desk/TEAM.md
+sync_rules:
+  shared_identity_required: true
+  shared_user_rules_required: true
+  orchestrator_final_state_authority: true
+  critical_actions_require_confirmation: true
+agents:
+- name: orchestrator
+  canonical_agent_id: orchestrator_trader
+  profile: orchestrator
+  model: ''
+  provider: ''
+  role: central coordinator and workflow router
+  responsibilities:
+  - receive goals
+  - collect outputs from all agents
+  - manage decision flow
+  - request trade execution through internal workflow only
+  - trigger reports and notifications
+  reports_to: null
+  forbidden_actions:
+  - no raw market-provider access
+  - no raw secret access
+  - no direct provider HTTP calls
+  allowed_toolsets:
+  - trading-orchestrator
+  allowed_tools:
+  - list_trade_candidates
+  - get_risk_approval
+  - get_portfolio_state
+  - send_notification
+  - get_execution_status
+  assigned_skills:
+  - workflow_routing
+  - decision_aggregation
+  - execution_requesting
+  - incident_escalation
+  expected_outputs:
+  - approved action plan
+  - trade execution request
+  - workflow summary
+  - alert decisions
+- name: market-researcher
+  canonical_agent_id: market_researcher
+  profile: market-researcher
+  model: ''
+  provider: ''
+  role: market context, narrative, regime, catalyst and watchlist intelligence
+  responsibilities:
+  - analyze market regime
+  - summarize catalysts
+  - generate ranked watchlists
+  - enrich signals with macro, news, social, and onchain context
+  - produce forward scenario forecasts from wrapped time-series inputs
+  reports_to: orchestrator
+  forbidden_actions:
+  - no trade placement
+  - no direct secret access
+  allowed_toolsets:
+  - trading-research
+  allowed_tools:
+  - get_crypto_prices
+  - get_market_overview
+  - get_ohlcv
+  - get_crypto_news
+  - get_general_news
+  - get_social_sentiment
+  - get_onchain_wallet_data
+  - get_smart_money_flows
+  - get_event_risk_summary
+  assigned_skills:
+  - market_regime_analysis
+  - watchlist_generation
+  - catalyst_detection
+  - narrative_shift_detection
+  - cross_asset_context
+  - chronos2_forecasting
+  expected_outputs:
+  - regime summary
+  - catalyst summary
+  - ranked watchlist
+  - risk notes
+  - research memo
+  - forecast scenario package
+- name: strategy-agent
+  canonical_agent_id: strategy_agent
+  profile: strategy-agent
+  model: ''
+  provider: ''
+  role: generate structured trade ideas based on market data and research context
+  responsibilities:
+  - scan setups
+  - build trade candidates
+  - match setups to regime
+  - define entry, stop, target, and invalidation
+  - consume research-provided forecast context when available
+  reports_to: orchestrator
+  forbidden_actions:
+  - no direct execution
+  - no raw news firehose dependency unless wrapped
+  allowed_toolsets:
+  - trading-strategy
+  allowed_tools:
+  - get_crypto_prices
+  - get_ohlcv
+  - get_indicator_snapshot
+  - get_market_overview
+  - get_onchain_signal_summary
+  - get_smart_money_flows
+  assigned_skills:
+  - setup_scanning
+  - signal_scoring
+  - trade_plan_generation
+  - regime_matching
+  - invalidation_modeling
+  expected_outputs:
+  - structured trade candidate
+  - confidence score
+  - entry/stop/target plan
+  - invalidation logic
+- name: risk-manager
+  canonical_agent_id: risk_manager
+  profile: risk-manager
+  model: ''
+  provider: ''
+  role: hard gatekeeper for risk controls
+  responsibilities:
+  - validate proposed trades
+  - size risk
+  - detect event risk, volatility risk, and concentration risk
+  - approve, reject, or resize proposals
+  reports_to: orchestrator
+  forbidden_actions:
+  - no bypass of workflow
+  - no raw direct execution
+  allowed_toolsets:
+  - trading-risk
+  allowed_tools:
+  - get_ohlcv
+  - get_volatility_metrics
+  - get_correlation_inputs
+  - get_event_risk_summary
+  - get_social_sentiment
+  - get_onchain_wallet_data
+  - get_smart_money_flows
+  - get_portfolio_state
+  - get_crypto_prices
+  assigned_skills:
+  - pretrade_risk_validation
+  - position_sizing
+  - drawdown_protection
+  - concentration_analysis
+  - volatility_risk_control
+  - event_risk_control
+  expected_outputs:
+  - risk approval or rejection
+  - max size recommendation
+  - stop or invalidation guidance
+  - risk flags
+- name: portfolio-monitor
+  canonical_agent_id: portfolio_monitor
+  profile: portfolio-monitor
+  model: ''
+  provider: ''
+  role: source of truth for positions, balances, exposure and reconciliation
+  responsibilities:
+  - track holdings and PnL
+  - detect drift
+  - reconcile internal state with external account state
+  - surface anomalies
+  reports_to: orchestrator
+  forbidden_actions:
+  - no discretionary strategy generation
+  - no direct raw secret exposure
+  allowed_toolsets:
+  - trading-portfolio
+  allowed_tools:
+  - get_portfolio_state
+  - get_crypto_prices
+  - get_market_overview
+  - get_onchain_wallet_data
+  - get_wallet_transactions
+  - send_notification
+  assigned_skills:
+  - pnl_tracking
+  - exposure_tracking
+  - reconciliation
+  - drift_detection
+  - anomaly_detection
+  expected_outputs:
+  - portfolio health summary
+  - pnl snapshot
+  - reconciliation report
+  - drift alert
+trading_mode:
+  mode: paper
+  execution_base_url: https://demo-api-cloud-v2.bitmart.com
+  forbid_live_execution: true
+  forbid_live_base_urls:
+  - https://api-cloud-v2.bitmart.com
+  - https://api-cloud.bitmart.com
+  enforcement_script: /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py
+  enforcement_mode: hard_block
+  required_execution_wrapper: python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py --base-url <base_url> -- <command>
+  required_demo_claim_before_execution: true
+  required_explicit_human_confirmation_for_write_actions: true

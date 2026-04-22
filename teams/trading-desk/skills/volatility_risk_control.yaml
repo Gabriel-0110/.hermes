@@ -1,0 +1,14 @@
+skill_id: volatility_risk_control
+name: Volatility Risk Control
+purpose: Adapt approvals and sizing to current realized volatility conditions.
+agents_allowed: [risk_manager]
+tools_required: [get_volatility_metrics, get_ohlcv]
+inputs: [symbol, timeframe]
+outputs: [volatility_flags]
+dependencies: []
+usage_example: "Flag a setup when realized volatility exceeds the desk threshold."
+limitations: [realized_vol_only]
+audit_logging_requirements: [log_symbol, log_volatility]
+description: Volatility-focused guardrail skill.
+failure_modes: [missing_bars]
+

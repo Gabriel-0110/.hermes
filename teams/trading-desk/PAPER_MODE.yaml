@@ -1,0 +1,10 @@
+mode: paper
+execution_base_url: https://demo-api-cloud-v2.bitmart.com
+live_execution_forbidden: true
+forbidden_live_base_urls:
+- https://api-cloud-v2.bitmart.com
+- https://api-cloud.bitmart.com
+enforcement_script: /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py
+enforcement_mode: hard_block
+required_execution_wrapper: python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py --base-url <base_url> -- <command>
+status: active

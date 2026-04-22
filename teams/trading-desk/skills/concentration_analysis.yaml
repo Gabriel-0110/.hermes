@@ -1,0 +1,14 @@
+skill_id: concentration_analysis
+name: Concentration Analysis
+purpose: Measure concentration risk across holdings and correlated assets.
+agents_allowed: [risk_manager]
+tools_required: [get_portfolio_state, get_correlation_inputs, get_crypto_prices]
+inputs: [portfolio_state, symbols]
+outputs: [concentration_report]
+dependencies: []
+usage_example: "Check whether BTC and ETH concentration exceeds policy."
+limitations: [correlation_is_input_only]
+audit_logging_requirements: [log_symbols, log_concentration_metrics]
+description: Concentration control for the risk layer.
+failure_modes: [insufficient_series]
+

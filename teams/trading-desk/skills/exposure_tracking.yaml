@@ -1,0 +1,14 @@
+skill_id: exposure_tracking
+name: Exposure Tracking
+purpose: Measure asset and directional exposure across the portfolio.
+agents_allowed: [portfolio_monitor]
+tools_required: [get_portfolio_state, get_market_overview]
+inputs: [portfolio_state]
+outputs: [exposure_summary]
+dependencies: []
+usage_example: "Check whether BTC and ETH dominate current account exposure."
+limitations: [depends_on_portfolio_adapter]
+audit_logging_requirements: [log_exposure_buckets]
+description: Track concentration and regime-adjusted exposure.
+failure_modes: [missing_positions]
+

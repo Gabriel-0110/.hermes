@@ -1,0 +1,14 @@
+skill_id: position_sizing
+name: Position Sizing
+purpose: Turn risk budgets into maximum size guidance.
+agents_allowed: [risk_manager]
+tools_required: [get_volatility_metrics, get_portfolio_state]
+inputs: [symbol, risk_budget]
+outputs: [max_size_recommendation]
+dependencies: []
+usage_example: "Reduce size when realized volatility is elevated."
+limitations: [no_slippage_model]
+audit_logging_requirements: [log_risk_budget, log_size_output]
+description: Produce normalized size limits for trade proposals.
+failure_modes: [missing_volatility_input]
+

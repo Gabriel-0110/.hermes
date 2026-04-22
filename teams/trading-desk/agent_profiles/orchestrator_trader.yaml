@@ -1,0 +1,51 @@
+agent_id: orchestrator_trader
+runtime_profile: orchestrator
+role: central coordinator and workflow router
+allowed_toolsets:
+  - trading-orchestrator
+allowed_tools:
+  - list_trade_candidates
+  - get_risk_approval
+  - get_portfolio_state
+  - send_notification
+  - get_execution_status
+forbidden_actions:
+  - no raw market-provider access
+  - no raw secret access
+  - no direct provider HTTP calls
+responsibilities:
+  - collect outputs from all agents
+  - manage decision flow
+  - request trade execution through internal workflow only
+  - trigger reports and notifications
+skills:
+  - workflow_routing
+  - decision_aggregation
+  - execution_requesting
+  - incident_escalation
+expected_inputs:
+  - research memo
+  - strategy candidates
+  - risk decisions
+  - portfolio state
+expected_outputs:
+  - approved action plan
+  - trade execution request
+  - workflow summary
+  - alert decisions
+
+platforms:
+  slack:
+    channels:
+      - hermes-general   # C0ASGRJPMDK — all-agents hub (no mention required)
+      - hub-agents       # C0AUK6VP46Q — intake, routing, coordination
+      - hub-announcements # C0AU97UBCLT — policy changes, maintenance windows
+      - hub-audit        # C0AUC7CGUAH — completion summaries, handoffs
+      - hub-escalations  # C0AU980UBEF — blockers, approvals, incidents (shared with risk_manager)
+      - wrk-content      # C0AUC9ZT069 — documentation, summaries, announcements
+    require_mention: false
+  telegram:
+    groups:
+      - hermes-agent-general  # -1003986582232 — general group (no mention required)
+    require_mention: false
+

@@ -1,0 +1,14 @@
+skill_id: signal_scoring
+name: Signal Scoring
+purpose: Turn setup evidence into a normalized confidence score.
+agents_allowed: [strategy_agent]
+tools_required: [get_indicator_snapshot, get_onchain_signal_summary]
+inputs: [setup_candidate]
+outputs: [signal_score]
+dependencies: []
+usage_example: "Combine indicator and onchain bias into one confidence score."
+limitations: [heuristic_scoring]
+audit_logging_requirements: [log_candidate, log_score]
+description: Score trade candidates before risk review.
+failure_modes: [missing_confirmation_signal]
+

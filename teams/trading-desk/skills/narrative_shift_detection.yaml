@@ -1,0 +1,14 @@
+skill_id: narrative_shift_detection
+name: Narrative Shift Detection
+purpose: Detect changes in narrative using social sentiment and news context.
+agents_allowed: [market_researcher]
+tools_required: [get_social_sentiment, get_crypto_news]
+inputs: [symbol]
+outputs: [narrative_shift_signal]
+dependencies: []
+usage_example: "Check if SOL narrative is improving based on wrapped social and news data."
+limitations: [single_symbol_scope]
+audit_logging_requirements: [log_symbol, log_detected_shift]
+description: Flag narrative inflections that may matter for watchlists or event risk.
+failure_modes: [social_feed_missing, low_signal]
+

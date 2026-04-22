@@ -1,0 +1,14 @@
+skill_id: decision_aggregation
+name: Decision Aggregation
+purpose: Merge outputs from research, strategy, risk, and portfolio layers into a single action recommendation.
+agents_allowed: [orchestrator_trader]
+tools_required: [get_portfolio_state, get_risk_approval]
+inputs: [research_memo, trade_candidates, risk_flags, portfolio_state]
+outputs: [action_plan, approval_state, contradictions]
+dependencies: []
+usage_example: "Combine a bullish research memo with a strategy setup and a partial risk approval into one routed action plan."
+limitations: [quality_depends_on_inputs]
+audit_logging_requirements: [log_upstream_artifacts, log_final_decision]
+description: Normalize and merge agent outputs for the orchestrator.
+failure_modes: [stale_inputs, conflicting_risk_and_strategy]
+

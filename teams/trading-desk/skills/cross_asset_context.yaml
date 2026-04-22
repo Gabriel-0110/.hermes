@@ -1,0 +1,14 @@
+skill_id: cross_asset_context
+name: Cross Asset Context
+purpose: Compare crypto instruments across a shared market context for research.
+agents_allowed: [market_researcher]
+tools_required: [get_crypto_prices, get_market_overview, get_ohlcv]
+inputs: [symbols, timeframe]
+outputs: [cross_asset_summary]
+dependencies: []
+usage_example: "Compare BTC, ETH, and SOL volatility and trend structure."
+limitations: [no_fundamental_data]
+audit_logging_requirements: [log_symbols, log_comparison_basis]
+description: Produce cross-asset context for regime and watchlist decisions.
+failure_modes: [inconsistent_symbol_mapping]
+

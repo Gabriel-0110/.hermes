@@ -1,0 +1,14 @@
+skill_id: chronos2_forecasting
+name: Chronos-2 Forecasting
+purpose: Produce forward-looking market scenario forecasts from normalized historical time-series inputs using Amazon Chronos-2.
+agents_allowed: [market_researcher]
+tools_required: [get_ohlcv, get_market_overview]
+inputs: [historical_series, prediction_horizon, frequency, symbols]
+outputs: [forecast_scenario_package, low_forecast, median_forecast, high_forecast]
+dependencies: [market_regime_analysis, cross_asset_context]
+usage_example: "Forecast the next 12 daily closes for BTC and ETH from normalized OHLCV context and attach low/median/high scenarios to the research memo."
+limitations: [forecasting_is_probabilistic_not_a_trade_signal, short_contexts_reduce_stability, cpu_inference_can_be_slow_on_first_download]
+external_skill_ref: /Users/openclaw/.hermes/skills/data-science/chronos2/SKILL.md
+audit_logging_requirements: [log_symbols, log_horizon, log_frequency, log_forecast_summary]
+description: Research-layer forecasting wrapper that uses the shared Chronos-2 skill to extend market context with explicit uncertainty bands.
+failure_modes: [insufficient_history, model_download_required, torch_or_chronos_dependency_missing]

@@ -1,0 +1,14 @@
+skill_id: setup_scanning
+name: Setup Scanning
+purpose: Scan markets for basic long, short, or watch setups using internal market tools.
+agents_allowed: [strategy_agent]
+tools_required: [get_crypto_prices, get_ohlcv, get_indicator_snapshot]
+inputs: [symbols, timeframe]
+outputs: [setup_candidates]
+dependencies: [regime_matching]
+usage_example: "Scan BTC and ETH for momentum continuation or fade setups."
+limitations: [placeholder_scoring]
+audit_logging_requirements: [log_symbols, log_found_setups]
+description: First-pass strategy scan.
+failure_modes: [no_symbols, missing_indicator_data]
+
