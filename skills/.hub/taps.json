@@ -1,0 +1,24 @@
+{
+  "taps": [
+    {
+      "repo": "https://github.com/bitmartexchange/bitmart-skills",
+      "path": "skills/"
+    },
+    {
+      "repo": "obra/superpowers",
+      "path": "skills/"
+    },
+    {
+      "repo": "browser-use/browser-use",
+      "path": "skills/"
+    },
+    {
+      "repo": "vercel-labs/agent-browser",
+      "path": "skills/"
+    },
+    {
+      "repo": "anthropics/skills",
+      "path": "skills/"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+"""Resource governance placeholder package."""
+

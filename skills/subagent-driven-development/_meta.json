@@ -1,0 +1,6 @@
+{
+  "identifier": "manual-github/obra/superpowers/subagent-driven-development",
+  "source": "github",
+  "repo": "https://github.com/obra/superpowers",
+  "install_method": "manual-sparse-checkout"
+}

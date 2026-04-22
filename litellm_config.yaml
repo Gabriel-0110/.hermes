@@ -1,0 +1,94 @@
+model_list:
+  - model_name: orchestrator-default
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: os.environ/OPENAI_API_KEY_1
+
+  - model_name: orchestrator-fallback-1
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY_1
+
+  - model_name: orchestrator-fallback-2
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY_2
+
+  - model_name: research-default
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY_2
+
+  - model_name: research-fallback-1
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: os.environ/OPENAI_API_KEY_3
+
+  - model_name: research-fallback-2
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY_3
+
+  - model_name: portfolio-default
+    litellm_params:
+      model: lm_studio/qwen/qwen3.5-9b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+
+  - model_name: portfolio-fallback-1
+    litellm_params:
+      model: lm_studio/google/gemma-4-e4b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+
+  - model_name: portfolio-fallback-2
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY_4
+
+  - model_name: risk-default
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY_4
+
+  - model_name: risk-fallback-1
+    litellm_params:
+      model: openai/gpt-5.4
+      api_key: os.environ/OPENAI_API_KEY_5
+
+  - model_name: risk-fallback-2
+    litellm_params:
+      model: lm_studio/qwen/qwen3.5-9b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+
+  - model_name: strategy-default
+    litellm_params:
+      model: lm_studio/google/gemma-4-e4b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+
+  - model_name: strategy-fallback-1
+    litellm_params:
+      model: lm_studio/qwen/qwen3.5-9b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+
+  - model_name: strategy-fallback-2
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY_5
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+router_settings:
+  fallbacks:
+    - {"orchestrator-default": ["orchestrator-fallback-1", "orchestrator-fallback-2"]}
+    - {"research-default": ["research-fallback-1", "research-fallback-2"]}
+    - {"portfolio-default": ["portfolio-fallback-1", "portfolio-fallback-2"]}
+    - {"risk-default": ["risk-fallback-1", "risk-fallback-2"]}
+    - {"strategy-default": ["strategy-fallback-1", "strategy-fallback-2"]}

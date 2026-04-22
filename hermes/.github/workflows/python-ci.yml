@@ -1,0 +1,28 @@
+name: Python CI
+
+on:
+  push:
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-ci.yml"
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-ci.yml"
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run pytest apps/api/tests

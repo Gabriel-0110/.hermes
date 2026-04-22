@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: timescale/timescaledb:2.18.2-pg16
+    container_name: hermes-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hermes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hermes}
+      POSTGRES_DB: ${POSTGRES_DB:-hermes}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hermes} -d ${POSTGRES_DB:-hermes}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    container_name: hermes-api
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hermes:hermes@postgres:5432/hermes}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/workspace
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    container_name: hermes-web
+    env_file:
+      - .env
+    environment:
+      HERMES_API_BASE_URL: ${HERMES_API_BASE_URL:-http://api:8000/api/v1}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./:/workspace
+
+  # adminer:
+  #   image: adminer:latest
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - postgres
+
+volumes:
+  postgres_data:

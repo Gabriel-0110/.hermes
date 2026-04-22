@@ -1,0 +1,259 @@
+# docker-compose.dev.yml — Unified Hermes development stack
+#
+# Brings up every service in dependency order:
+#   TimescaleDB → Redis → LiteLLM → Dashboard → API → Web
+#
+# Quick start:
+#   make dev-up
+#   make dev-help
+#
+# To rebuild after code changes:
+#   make dev-up
+#
+# Canonical verification:
+#   make dev-check
+#
+# Default host ports:
+#   5433  TimescaleDB  (avoids conflicts with a local postgres on 5432)
+#   6379  Redis
+#   4000  LiteLLM gateway + UI  →  http://localhost:4000/ui
+#   9119  Hermes dashboard      →  http://localhost:9119
+#   8000  Hermes API            →  http://localhost:8000
+#   3000  Hermes web (Next.js)  →  http://localhost:3000
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Data tier
+  # ─────────────────────────────────────────────────────────────────────────
+
+  timescaledb:
+    image: timescale/timescaledb:2.18.2-pg17
+    container_name: hermes-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${HERMES_TIMESCALE_BOOTSTRAP_DB:-postgres}
+      POSTGRES_USER: ${HERMES_TIMESCALE_BOOTSTRAP_USER:-postgres}
+      POSTGRES_PASSWORD: ${HERMES_TIMESCALE_BOOTSTRAP_PASSWORD:-postgres}
+      HERMES_TIMESCALE_DB: ${HERMES_TIMESCALE_DB:-hermes_trading}
+      HERMES_TIMESCALE_USER: ${HERMES_TIMESCALE_USER:-hermes}
+      HERMES_TIMESCALE_PASSWORD: ${HERMES_TIMESCALE_PASSWORD:-hermes}
+    ports:
+      - "${HERMES_TIMESCALE_PORT:-5433}:5432"
+    volumes:
+      - hermes-dev-timescaledb:/var/lib/postgresql/data
+      - ./hermes-agent/docker/timescaledb-entrypoint.sh:/usr/local/bin/timescaledb-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/timescaledb-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HERMES_TIMESCALE_USER:-hermes} -d ${HERMES_TIMESCALE_DB:-hermes_trading}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:8.2-alpine
+    container_name: hermes-redis
+    restart: unless-stopped
+    ports:
+      - "${HERMES_REDIS_PORT:-6379}:6379"
+    volumes:
+      - hermes-dev-redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # LLM gateway
+  # ─────────────────────────────────────────────────────────────────────────
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm-database:main-stable
+    container_name: hermes-litellm
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ${LITELLM_CONFIG_PATH:-./hermes-agent/litellm_config.yaml}:/app/config.yaml:ro
+    environment:
+      # LiteLLM uses the plain postgresql:// scheme internally
+      DATABASE_URL: "postgresql://${HERMES_TIMESCALE_USER:-hermes}:${HERMES_TIMESCALE_PASSWORD:-hermes}@timescaledb:5432/${HERMES_TIMESCALE_DB:-hermes_trading}"
+      LITELLM_DATABASE_URL: "postgresql://${HERMES_TIMESCALE_USER:-hermes}:${HERMES_TIMESCALE_PASSWORD:-hermes}@timescaledb:5432/${HERMES_TIMESCALE_DB:-hermes_trading}"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-hermes-dev-change-me}
+      UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}
+      UI_PASSWORD: ${LITELLM_UI_PASSWORD:-}
+      ROOT_REDIRECT_URL: /ui
+      DOCS_URL: /
+      # LLM provider keys — pass through from host .env.dev
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_1: ${OPENAI_API_KEY_1:-}
+      OPENAI_API_KEY_2: ${OPENAI_API_KEY_2:-}
+      OPENAI_API_KEY_3: ${OPENAI_API_KEY_3:-}
+      OPENAI_API_KEY_4: ${OPENAI_API_KEY_4:-}
+      OPENAI_API_KEY_5: ${OPENAI_API_KEY_5:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_1: ${ANTHROPIC_API_KEY_1:-}
+      ANTHROPIC_API_KEY_2: ${ANTHROPIC_API_KEY_2:-}
+      ANTHROPIC_API_KEY_3: ${ANTHROPIC_API_KEY_3:-}
+      ANTHROPIC_API_KEY_4: ${ANTHROPIC_API_KEY_4:-}
+      ANTHROPIC_API_KEY_5: ${ANTHROPIC_API_KEY_5:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_CN_API_KEY: ${MINIMAX_CN_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      XIAOMI_API_KEY: ${XIAOMI_API_KEY:-}
+      LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-not-required}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
+
+  tradingview-mcp:
+    image: node:20-alpine
+    container_name: hermes-tradingview-mcp
+    restart: unless-stopped
+    working_dir: /srv/tradingview-mcp
+    command: ["node", "src/server.js"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ${TRADINGVIEW_MCP_DIR:-/absolute/path/to/tradingview-mcp}:/srv/tradingview-mcp:ro
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Application tier
+  # ─────────────────────────────────────────────────────────────────────────
+
+  dashboard:
+    build:
+      context: ./hermes-agent
+      dockerfile: Dockerfile
+    container_name: hermes-dashboard
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      tradingview-mcp:
+        condition: service_started
+    environment:
+      HERMES_HOME: /opt/data
+      DATABASE_URL: "postgresql+psycopg://${HERMES_TIMESCALE_USER:-hermes}:${HERMES_TIMESCALE_PASSWORD:-hermes}@timescaledb:5432/${HERMES_TIMESCALE_DB:-hermes_trading}"
+      REDIS_URL: "redis://redis:6379/0"
+      LITELLM_BASE_URL: "http://litellm:4000"
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY:-sk-hermes-dev-change-me}
+      TRADING_PORTFOLIO_ACCOUNT_ID: ${TRADING_PORTFOLIO_ACCOUNT_ID:-paper}
+      TRADING_NOTIFICATION_BACKEND: ${TRADING_NOTIFICATION_BACKEND:-log}
+      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-replace-with-shared-secret}
+      TRADINGVIEW_WEBHOOK_SECRET_HEADER: ${TRADINGVIEW_WEBHOOK_SECRET_HEADER:-X-TV-Secret}
+      # Notification channels
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # Market data providers
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      COINMARKETCAP_API_KEY: ${COINMARKETCAP_API_KEY:-}
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      CRYPTOPANIC_API_KEY: ${CRYPTOPANIC_API_KEY:-}
+      NEWS_API_KEY: ${NEWS_API_KEY:-${NEWSAPI_KEY:-}}
+      LUNARCRUSH_API_KEY: ${LUNARCRUSH_API_KEY:-}
+      ETHERSCAN_API_KEY: ${ETHERSCAN_API_KEY:-}
+      NANSEN_API_KEY: ${NANSEN_API_KEY:-}
+      # Exchange connectivity (paper only until live mode is hardened)
+      BITMART_API_KEY: ${BITMART_API_KEY:-}
+      BITMART_SECRET: ${BITMART_SECRET:-}
+      BITMART_MEMO: ${BITMART_MEMO:-}
+      HERMES_TRADING_MODE: ${HERMES_TRADING_MODE:-paper}
+      HERMES_PAPER_MODE: ${HERMES_PAPER_MODE:-}
+      HERMES_ENABLE_LIVE_TRADING: ${HERMES_ENABLE_LIVE_TRADING:-false}
+      HERMES_LIVE_TRADING_ACK: ${HERMES_LIVE_TRADING_ACK:-}
+    ports:
+      - "${HERMES_DASHBOARD_PORT:-9119}:9119"
+    volumes:
+      - hermes-dev-home:/opt/data
+      - ${TRADINGVIEW_MCP_DIR:-/absolute/path/to/tradingview-mcp}:${TRADINGVIEW_MCP_DIR:-/absolute/path/to/tradingview-mcp}:ro
+    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9119/api/status')\""]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  api:
+    build:
+      context: ./hermes
+      dockerfile: infrastructure/docker/api.Dockerfile
+    container_name: hermes-api
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      DATABASE_URL: "postgresql+psycopg://${HERMES_TIMESCALE_USER:-hermes}:${HERMES_TIMESCALE_PASSWORD:-hermes}@timescaledb:5432/${HERMES_TIMESCALE_DB:-hermes_trading}"
+      HERMES_AGENT_BASE_URL: "http://dashboard:9119"
+      HERMES_WORKSPACE_ROOT: /workspace-root
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_TRADING_MODE: ${HERMES_TRADING_MODE:-paper}
+      HERMES_ENABLE_LIVE_TRADING: ${HERMES_ENABLE_LIVE_TRADING:-false}
+      HERMES_LIVE_TRADING_ACK: ${HERMES_LIVE_TRADING_ACK:-}
+      # Keep the local auth bypass explicit. `.env.dev.example` sets it to
+      # true for the canonical local-only workflow, but the compose file no
+      # longer silently enables it by default.
+      HERMES_API_DEV_BYPASS_AUTH: ${HERMES_API_DEV_BYPASS_AUTH:-}
+    ports:
+      - "${HERMES_API_PORT:-8000}:8000"
+    volumes:
+      - ./:/workspace-root:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/healthz')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ./hermes
+      dockerfile: infrastructure/docker/web.Dockerfile
+    container_name: hermes-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      HERMES_API_BASE_URL: "http://api:8000/api/v1"
+    ports:
+      - "${HERMES_WEB_PORT:-3000}:3000"
+    command: ["sh", "-lc", "rm -rf .next && npm run build && HOSTNAME=0.0.0.0 PORT=3000 node .next/standalone/apps/web/server.js"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  hermes-dev-timescaledb:
+  hermes-dev-redis:
+  hermes-dev-home:

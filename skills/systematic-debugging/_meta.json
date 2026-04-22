@@ -1,0 +1,6 @@
+{
+  "identifier": "manual-github/obra/superpowers/systematic-debugging",
+  "source": "github",
+  "repo": "https://github.com/obra/superpowers",
+  "install_method": "manual-sparse-checkout"
+}

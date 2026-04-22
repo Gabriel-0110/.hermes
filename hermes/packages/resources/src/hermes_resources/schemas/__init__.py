@@ -1,0 +1,2 @@
+"""Schema placeholder package."""
+

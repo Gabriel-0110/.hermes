@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs and runtime data
+*.log
+logs/
+tmp/
+*.pid
+
+# Test artifacts
+playwright-report/
+test-results/
+junit.xml
+
+# Docker / local infra
+docker-compose.override.yml
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+pgdata/
+
+# IDE / editor
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Misc build outputs
+public/build/
+storybook-static/

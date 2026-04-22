@@ -1,0 +1,89 @@
+# macOS / editor noise
+.DS_Store
+.vscode/
+.idea/
+
+# Python / local tooling
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+__pycache__/
+*.py[cod]
+.python-version
+.envrc
+.direnv/
+*.egg-info/
+
+# JS/TS dependencies and build outputs
+node_modules/
+.next/
+out/
+.turbo/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Generic logs and temp artifacts
+*.log
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tmp
+tmp/
+
+# Local compiled tools
+bin/tirith
+
+# Local environment / auth / machine-specific config
+.env
+.env.*
+!.env.dev.example
+!.env.example
+auth.json
+auth.lock
+config.yaml
+active_profile
+.hermes_history
+.clean_shutdown
+.update_check
+
+# Runtime state / caches / logs
+audio_cache/
+cache/
+chrome-debug/
+image_cache/
+logs/
+temp_vision_images/
+sandboxes/
+sessions/
+pairing/
+teams/
+whatsapp/
+cron/output/
+cron/.tick.lock
+cron/jobs.json
+profiles/
+memories/
+
+# Gateway / app state
+channel_directory.json
+feishu_seen_message_ids.json
+gateway_state.json
+models_dev_cache.json
+processes.json
+state.db
+state.db-shm
+state.db-wal
+dump.rdb
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.rdb

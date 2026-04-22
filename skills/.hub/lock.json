@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "installed": {
+    "bitmart-exchange-futures": {
+      "source": "skills.sh",
+      "identifier": "skills-sh/bitmartexchange/bitmart-skills/bitmart-exchange-futures",
+      "trust_level": "community",
+      "scan_verdict": "dangerous",
+      "content_hash": "sha256:ff325e1fc9b7e6c2",
+      "install_path": "bitmart-exchange-futures",
+      "files": [
+        "README.md",
+        "SKILL.md",
+        "references/api-reference.md",
+        "references/close-position.md",
+        "references/open-position.md",
+        "references/plan-order.md",
+        "references/tp-sl.md"
+      ],
+      "metadata": {
+        "detail_url": "https://skills.sh/bitmartexchange/bitmart-skills/bitmart-exchange-futures",
+        "repo_url": "https://github.com/bitmartexchange/bitmart-skills",
+        "weekly_installs": "404",
+        "install_command": "npx skills add https://github.com/bitmartexchange/bitmart-skills --skill bitmart-exchange-futures",
+        "security_audits": {
+          "agent-trust-hub": "Pass",
+          "socket": "Warn",
+          "snyk": "Warn"
+        }
+      },
+      "installed_at": "2026-04-13T21:54:49.392135+00:00",
+      "updated_at": "2026-04-13T21:54:49.392138+00:00"
+    },
+    "bitmart-exchange-spot": {
+      "source": "skills.sh",
+      "identifier": "skills-sh/bitmartexchange/bitmart-skills/bitmart-exchange-spot",
+      "trust_level": "community",
+      "scan_verdict": "dangerous",
+      "content_hash": "sha256:3ef27587f006788a",
+      "install_path": "bitmart-exchange-spot",
+      "files": [
+        "README.md",
+        "SKILL.md",
+        "references/api-reference.md",
+        "references/authentication.md",
+        "references/scenarios.md"
+      ],
+      "metadata": {
+        "detail_url": "https://skills.sh/bitmartexchange/bitmart-skills/bitmart-exchange-spot",
+        "repo_url": "https://github.com/bitmartexchange/bitmart-skills",
+        "weekly_installs": "404",
+        "install_command": "npx skills add https://github.com/bitmartexchange/bitmart-skills --skill bitmart-exchange-spot",
+        "security_audits": {
+          "agent-trust-hub": "Pass",
+          "socket": "Pass",
+          "snyk": "Warn"
+        }
+      },
+      "installed_at": "2026-04-13T22:06:23.415998+00:00",
+      "updated_at": "2026-04-13T22:06:23.416002+00:00"
+    },
+    "writing-plans": {
+      "source": "clawhub",
+      "identifier": "writing-plans",
+      "trust_level": "community",
+      "scan_verdict": "safe",
+      "content_hash": "sha256:184cbb663a94612b",
+      "install_path": "writing-plans",
+      "files": [
+        "SKILL.md",
+        "_meta.json"
+      ],
+      "metadata": {},
+      "installed_at": "2026-04-13T23:13:37.312145+00:00",
+      "updated_at": "2026-04-13T23:13:37.312151+00:00"
+    },
+    "browser-use": {
+      "source": "skills.sh",
+      "identifier": "skills-sh/browser-use/browser-use/browser-use",
+      "trust_level": "community",
+      "scan_verdict": "caution",
+      "content_hash": "sha256:a93b2476607eb85f",
+      "install_path": "browser-use",
+      "files": [
+        "SKILL.md",
+        "references/cdp-python.md",
+        "references/multi-session.md"
+      ],
+      "metadata": {},
+      "installed_at": "2026-04-13T23:13:39.639576+00:00",
+      "updated_at": "2026-04-13T23:13:39.639579+00:00"
+    },
+    "agent-browser": {
+      "source": "skills.sh",
+      "identifier": "skills-sh/vercel-labs/agent-browser/agent-browser",
+      "trust_level": "community",
+      "scan_verdict": "caution",
+      "content_hash": "sha256:8788baf04ace9f1d",
+      "install_path": "agent-browser",
+      "files": [
+        "SKILL.md",
+        "references/authentication.md",
+        "references/commands.md",
+        "references/profiling.md",
+        "references/proxy-support.md",
+        "references/session-management.md",
+        "references/snapshot-refs.md",
+        "references/video-recording.md",
+        "templates/authenticated-session.sh",
+        "templates/capture-workflow.sh",
+        "templates/form-automation.sh"
+      ],
+      "metadata": {},
+      "installed_at": "2026-04-13T23:13:44.436241+00:00",
+      "updated_at": "2026-04-13T23:13:44.436244+00:00"
+    },
+    "skill-creator": {
+      "source": "skills.sh",
+      "identifier": "skills-sh/anthropics/skills/skill-creator",
+      "trust_level": "trusted",
+      "scan_verdict": "caution",
+      "content_hash": "sha256:86c42e67eb08a57f",
+      "install_path": "skill-creator",
+      "files": [
+        "LICENSE.txt",
+        "SKILL.md",
+        "agents/analyzer.md",
+        "agents/comparator.md",
+        "agents/grader.md",
+        "assets/eval_review.html",
+        "eval-viewer/generate_review.py",
+        "eval-viewer/viewer.html",
+        "references/schemas.md",
+        "scripts/__init__.py",
+        "scripts/aggregate_benchmark.py",
+        "scripts/generate_report.py",
+        "scripts/improve_description.py",
+        "scripts/package_skill.py",
+        "scripts/quick_validate.py",
+        "scripts/run_eval.py",
+        "scripts/run_loop.py",
+        "scripts/utils.py"
+      ],
+      "metadata": {},
+      "installed_at": "2026-04-13T23:13:52.117839+00:00",
+      "updated_at": "2026-04-13T23:13:52.117841+00:00"
+    }
+  }
+}

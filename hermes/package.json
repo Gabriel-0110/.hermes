@@ -1,0 +1,16 @@
+{
+  "name": "hermes",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "format": "prettier --write .",
+    "lint:web": "npm run lint --workspace @hermes/web",
+    "build:web": "npm run build --workspace @hermes/web"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}
