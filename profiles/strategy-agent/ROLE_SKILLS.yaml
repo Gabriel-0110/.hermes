@@ -1,0 +1,18 @@
+profile: strategy-agent
+canonical_agent_id: strategy_agent
+allowed_toolsets:
+- trading-strategy
+allowed_tools:
+- get_crypto_prices
+- get_ohlcv
+- get_indicator_snapshot
+- get_market_overview
+- get_onchain_signal_summary
+- get_smart_money_flows
+assigned_skills:
+- setup_scanning
+- signal_scoring
+- trade_plan_generation
+- regime_matching
+- invalidation_modeling
+source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml

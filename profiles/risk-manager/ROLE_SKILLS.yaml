@@ -1,0 +1,22 @@
+profile: risk-manager
+canonical_agent_id: risk_manager
+allowed_toolsets:
+- trading-risk
+allowed_tools:
+- get_ohlcv
+- get_volatility_metrics
+- get_correlation_inputs
+- get_event_risk_summary
+- get_social_sentiment
+- get_onchain_wallet_data
+- get_smart_money_flows
+- get_portfolio_state
+- get_crypto_prices
+assigned_skills:
+- pretrade_risk_validation
+- position_sizing
+- drawdown_protection
+- concentration_analysis
+- volatility_risk_control
+- event_risk_control
+source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml

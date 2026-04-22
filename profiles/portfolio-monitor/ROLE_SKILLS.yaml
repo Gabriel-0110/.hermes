@@ -1,0 +1,18 @@
+profile: portfolio-monitor
+canonical_agent_id: portfolio_monitor
+allowed_toolsets:
+- trading-portfolio
+allowed_tools:
+- get_portfolio_state
+- get_crypto_prices
+- get_market_overview
+- get_onchain_wallet_data
+- get_wallet_transactions
+- send_notification
+assigned_skills:
+- pnl_tracking
+- exposure_tracking
+- reconciliation
+- drift_detection
+- anomaly_detection
+source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml

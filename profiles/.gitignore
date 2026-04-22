@@ -1,0 +1,29 @@
+# Default: ignore local runtime/secrets inside role profiles.
+*
+!*/
+!.gitignore
+!*/IDENTITY.md
+!*/ROLE_SKILLS.yaml
+!*/SOUL.md
+!*/TEAM.md
+!*/USER.md
+!*/config.yaml
+
+# Never commit live operator/session state.
+*/.env
+*/.env.*
+*/auth.json
+*/auth.lock
+*/.hermes_history
+*/.skills_prompt_snapshot.json
+*/.update_check
+*/channel_directory.json
+*/gateway.pid
+*/gateway_state.json
+*/models_dev_cache.json
+*/response_store.db
+*/response_store.db-shm
+*/response_store.db-wal
+*/state.db
+*/state.db-shm
+*/state.db-wal

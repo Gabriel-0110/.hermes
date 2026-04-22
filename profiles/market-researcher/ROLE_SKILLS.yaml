@@ -1,0 +1,22 @@
+profile: market-researcher
+canonical_agent_id: market_researcher
+allowed_toolsets:
+- trading-research
+allowed_tools:
+- get_crypto_prices
+- get_market_overview
+- get_ohlcv
+- get_crypto_news
+- get_general_news
+- get_social_sentiment
+- get_onchain_wallet_data
+- get_smart_money_flows
+- get_event_risk_summary
+assigned_skills:
+- market_regime_analysis
+- watchlist_generation
+- catalyst_detection
+- narrative_shift_detection
+- cross_asset_context
+- chronos2_forecasting
+source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml
