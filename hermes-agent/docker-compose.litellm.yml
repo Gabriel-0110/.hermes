@@ -1,0 +1,42 @@
+services:
+  litellm:
+    image: docker.litellm.ai/berriai/litellm-database:main-stable
+    container_name: hermes-litellm
+    restart: unless-stopped
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ${LITELLM_CONFIG_PATH:-./litellm_config.yaml}:/app/config.yaml:ro
+    environment:
+      DATABASE_URL: ${LITELLM_DOCKER_DATABASE_URL:-${LITELLM_DATABASE_URL:-${DATABASE_URL:?Set LITELLM_DATABASE_URL or DATABASE_URL for LiteLLM virtual keys}}}
+      LITELLM_DATABASE_URL: ${LITELLM_DOCKER_DATABASE_URL:-${LITELLM_DATABASE_URL:-${DATABASE_URL:?Set LITELLM_DATABASE_URL or DATABASE_URL for LiteLLM virtual keys}}}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY to an sk-... admin key}
+      UI_USERNAME: ${LITELLM_UI_USERNAME:-}
+      UI_PASSWORD: ${LITELLM_UI_PASSWORD:-}
+      ROOT_REDIRECT_URL: ${ROOT_REDIRECT_URL:-/ui}
+      DOCS_URL: ${DOCS_URL:-/}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY_1: ${OPENAI_API_KEY_1:-}
+      OPENAI_API_KEY_2: ${OPENAI_API_KEY_2:-}
+      OPENAI_API_KEY_3: ${OPENAI_API_KEY_3:-}
+      OPENAI_API_KEY_4: ${OPENAI_API_KEY_4:-}
+      OPENAI_API_KEY_5: ${OPENAI_API_KEY_5:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_1: ${ANTHROPIC_API_KEY_1:-}
+      ANTHROPIC_API_KEY_2: ${ANTHROPIC_API_KEY_2:-}
+      ANTHROPIC_API_KEY_3: ${ANTHROPIC_API_KEY_3:-}
+      ANTHROPIC_API_KEY_4: ${ANTHROPIC_API_KEY_4:-}
+      ANTHROPIC_API_KEY_5: ${ANTHROPIC_API_KEY_5:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      ZAI_API_KEY: ${ZAI_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_CN_API_KEY: ${MINIMAX_CN_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      XIAOMI_API_KEY: ${XIAOMI_API_KEY:-}
+      LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-not-required}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]

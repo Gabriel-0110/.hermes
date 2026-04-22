@@ -1,0 +1,546 @@
+"""SQLAlchemy models for Timescale-backed shared time-series storage."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import uuid4
+
+from sqlalchemy import Boolean, DateTime, Float, Index, JSON, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .base import Base
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex}"
+
+
+class TradingViewAlertEventRow(Base):
+    __tablename__ = "tradingview_alert_events"
+    __table_args__ = (
+        Index("ix_tv_alert_events_symbol_time", "symbol", "event_time"),
+        Index("ix_tv_alert_events_status_time", "processing_status", "event_time"),
+    )
+
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("tv_alert"))
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    timeframe: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    alert_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    signal: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    strategy: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    processing_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class TradingViewInternalEventRow(Base):
+    __tablename__ = "tradingview_internal_events"
+    __table_args__ = (
+        Index("ix_tv_internal_events_type_status_time", "event_type", "delivery_status", "event_time"),
+        Index("ix_tv_internal_events_symbol_time", "symbol", "event_time"),
+    )
+
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("tv_evt"))
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    alert_event_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    delivery_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    delivery_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class AgentSignalRow(Base):
+    __tablename__ = "agent_signals"
+    __table_args__ = (
+        Index("ix_agent_signals_symbol_time", "symbol", "signal_time"),
+        Index("ix_agent_signals_agent_time", "agent_id", "signal_time"),
+    )
+
+    signal_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("signal"))
+    agent_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    signal_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    direction: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class PortfolioSnapshotRow(Base):
+    __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        Index("ix_portfolio_snapshots_account_time", "account_id", "snapshot_time"),
+    )
+
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    total_equity_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cash_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exposure_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    positions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class RiskEventRow(Base):
+    __tablename__ = "risk_events"
+    __table_args__ = (
+        Index("ix_risk_events_symbol_time", "symbol", "event_time"),
+        Index("ix_risk_events_severity_time", "severity", "event_time"),
+    )
+
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("risk"))
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class NotificationSentRow(Base):
+    __tablename__ = "notifications_sent"
+    __table_args__ = (
+        Index("ix_notifications_sent_channel_time", "channel", "sent_time"),
+        Index("ix_notifications_sent_delivered_time", "delivered", "sent_time"),
+        Index("ix_notifications_sent_retry_time", "next_retry_at", "sent_time"),
+    )
+
+    sent_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("notif"))
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    delivered: Mapped[bool] = mapped_column(nullable=False, default=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Retry tracking — nullable so existing rows without these columns still load
+    retry_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class WorkflowRunRow(Base):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        Index("ix_workflow_runs_correlation_time", "correlation_id", "created_at"),
+        Index("ix_workflow_runs_event_time", "event_id", "created_at"),
+        Index("ix_workflow_runs_status_time", "status", "created_at"),
+        Index("ix_workflow_runs_workflow_name_time", "workflow_name", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("wf_run"))
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    workflow_step: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class WorkflowStepRow(Base):
+    __tablename__ = "workflow_steps"
+    __table_args__ = (
+        Index("ix_workflow_steps_run_time", "workflow_run_id", "created_at"),
+        Index("ix_workflow_steps_correlation_time", "correlation_id", "created_at"),
+        Index("ix_workflow_steps_status_time", "status", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("wf_step"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    workflow_step: Mapped[str] = mapped_column(String(120), nullable=False)
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ToolCallRow(Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        Index("ix_tool_calls_correlation_time", "correlation_id", "created_at"),
+        Index("ix_tool_calls_tool_time", "tool_name", "created_at"),
+        Index("ix_tool_calls_run_time", "workflow_run_id", "created_at"),
+        Index("ix_tool_calls_status_time", "status", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("tool"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    workflow_step: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AgentDecisionRow(Base):
+    __tablename__ = "agent_decisions"
+    __table_args__ = (
+        Index("ix_agent_decisions_correlation_time", "correlation_id", "created_at"),
+        Index("ix_agent_decisions_agent_time", "agent_name", "created_at"),
+        Index("ix_agent_decisions_run_time", "workflow_run_id", "created_at"),
+        Index("ix_agent_decisions_status_time", "status", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("decision"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    workflow_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    workflow_step: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ExecutionEventRow(Base):
+    __tablename__ = "execution_events"
+    __table_args__ = (
+        Index("ix_execution_events_correlation_time", "correlation_id", "created_at"),
+        Index("ix_execution_events_status_time", "status", "created_at"),
+        Index("ix_execution_events_run_time", "workflow_run_id", "created_at"),
+        Index("ix_execution_events_tool_time", "tool_name", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("exec"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    workflow_step: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SystemErrorRow(Base):
+    __tablename__ = "system_errors"
+    __table_args__ = (
+        Index("ix_system_errors_correlation_time", "correlation_id", "created_at"),
+        Index("ix_system_errors_status_time", "status", "created_at"),
+        Index("ix_system_errors_tool_time", "tool_name", "created_at"),
+        Index("ix_system_errors_run_time", "workflow_run_id", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("err"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    workflow_step: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="error")
+    error_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    summarized_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summarized_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    is_failure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ReplayCaseRow(Base):
+    __tablename__ = "replay_cases"
+    __table_args__ = (
+        Index("ix_replay_cases_source_event_time", "source_event_id", "created_at"),
+        Index("ix_replay_cases_source_correlation_time", "source_correlation_id", "created_at"),
+        Index("ix_replay_cases_source_type_time", "source_type", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("replay_case"))
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_alert_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    input_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    expected_outcome: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ReplayRunRow(Base):
+    __tablename__ = "replay_runs"
+    __table_args__ = (
+        Index("ix_replay_runs_case_time", "replay_case_id", "created_at"),
+        Index("ix_replay_runs_status_time", "status", "created_at"),
+        Index("ix_replay_runs_workflow_run_time", "workflow_run_id", "created_at"),
+        Index("ix_replay_runs_source_event_time", "source_event_id", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("replay_run"))
+    replay_case_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    workflow_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="replay")
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    configuration_json: Mapped[dict] = mapped_column("configuration", JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ReplayResultRow(Base):
+    __tablename__ = "replay_results"
+    __table_args__ = (
+        Index("ix_replay_results_run_time", "replay_run_id", "created_at"),
+        Index("ix_replay_results_case_time", "replay_case_id", "created_at"),
+        Index("ix_replay_results_decision_time", "decision", "created_at"),
+        Index("ix_replay_results_source_event_time", "source_event_id", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("replay_result"))
+    replay_run_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    replay_case_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    should_execute: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    execution_intent: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    notifications: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    output_json: Mapped[dict] = mapped_column("output", JSON, nullable=False, default=dict)
+    state_json: Mapped[dict] = mapped_column("state", JSON, nullable=False, default=dict)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class EvaluationScoreRow(Base):
+    __tablename__ = "evaluation_scores"
+    __table_args__ = (
+        Index("ix_evaluation_scores_run_time", "replay_run_id", "created_at"),
+        Index("ix_evaluation_scores_result_time", "replay_result_id", "created_at"),
+        Index("ix_evaluation_scores_rule_time", "rule_name", "created_at"),
+        Index("ix_evaluation_scores_passed_time", "passed", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("eval_score"))
+    replay_run_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    replay_result_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    replay_case_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    rule_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class RegressionComparisonRow(Base):
+    __tablename__ = "regression_comparisons"
+    __table_args__ = (
+        Index("ix_regression_comparisons_baseline_time", "baseline_replay_run_id", "created_at"),
+        Index("ix_regression_comparisons_candidate_time", "candidate_replay_run_id", "created_at"),
+        Index("ix_regression_comparisons_type_time", "comparison_type", "created_at"),
+        Index("ix_regression_comparisons_status_time", "status", "created_at"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("regression"))
+    baseline_replay_run_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    candidate_replay_run_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    comparison_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    baseline_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    candidate_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="completed")
+    summary_json: Mapped[dict] = mapped_column("summary", JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Advanced Intelligence / Optimization
+# ---------------------------------------------------------------------------
+
+
+class ResearchMemoRow(Base):
+    """Durable per-symbol and themed research memos for agent knowledge accumulation."""
+
+    __tablename__ = "research_memos"
+    __table_args__ = (
+        Index("ix_research_memos_symbol_time", "symbol", "memo_time"),
+        Index("ix_research_memos_agent_time", "source_agent", "memo_time"),
+        Index("ix_research_memos_strategy_time", "strategy_ref", "memo_time"),
+    )
+
+    memo_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("memo"))
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    source_agent: Mapped[str] = mapped_column(String(120), nullable=False, default="hermes")
+    strategy_ref: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class StrategyEvaluationRow(Base):
+    """Records of strategy scoring runs for candidate symbols — evaluation loop scaffold."""
+
+    __tablename__ = "strategy_evaluations"
+    __table_args__ = (
+        Index("ix_strategy_evals_strategy_time", "strategy_name", "eval_time"),
+        Index("ix_strategy_evals_symbol_time", "symbol", "eval_time"),
+        Index("ix_strategy_evals_direction_time", "direction", "eval_time"),
+    )
+
+    eval_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("eval"))
+    strategy_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    strategy_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(32), nullable=False, default="1h")
+    direction: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Outcome fields — filled in after trade resolves (evaluation loop)
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

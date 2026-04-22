@@ -1,0 +1,65 @@
+services:
+  redis:
+    image: redis:8.2-alpine
+    container_name: hermes-redis
+    restart: unless-stopped
+    ports:
+      - "${HERMES_REDIS_PORT:-6379}:6379"
+    volumes:
+      - hermes-redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:2.18.2-pg17
+    container_name: hermes-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${HERMES_TIMESCALE_BOOTSTRAP_DB:-postgres}
+      POSTGRES_USER: ${HERMES_TIMESCALE_BOOTSTRAP_USER:-postgres}
+      POSTGRES_PASSWORD: ${HERMES_TIMESCALE_BOOTSTRAP_PASSWORD:-postgres}
+      HERMES_TIMESCALE_DB: ${HERMES_TIMESCALE_DB:-hermes_trading}
+      HERMES_TIMESCALE_USER: ${HERMES_TIMESCALE_USER:-hermes}
+      HERMES_TIMESCALE_PASSWORD: ${HERMES_TIMESCALE_PASSWORD:-hermes}
+    ports:
+      - "${HERMES_TIMESCALE_PORT:-5432}:5432"
+    volumes:
+      - hermes-timescaledb-data:/var/lib/postgresql/data
+      - ./docker/timescaledb-entrypoint.sh:/usr/local/bin/timescaledb-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/timescaledb-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HERMES_TIMESCALE_USER:-hermes} -d ${HERMES_TIMESCALE_DB:-hermes_trading}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  hermes:
+    build:
+      context: .
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      HERMES_HOME: /opt/data
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hermes:hermes@timescaledb:5432/hermes_trading}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      TRADING_PORTFOLIO_ACCOUNT_ID: ${TRADING_PORTFOLIO_ACCOUNT_ID:-paper}
+      TRADING_NOTIFICATION_BACKEND: ${TRADING_NOTIFICATION_BACKEND:-log}
+      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-replace_with_shared_secret}
+      TRADINGVIEW_WEBHOOK_SECRET_HEADER: ${TRADINGVIEW_WEBHOOK_SECRET_HEADER:-X-TV-Secret}
+    ports:
+      - "9119:9119"
+    volumes:
+      - hermes-home:/opt/data
+    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119"]
+
+volumes:
+  hermes-redis-data:
+  hermes-timescaledb-data:
+  hermes-home:
