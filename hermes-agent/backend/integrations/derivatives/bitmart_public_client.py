@@ -221,13 +221,13 @@ class BitMartPublicClient:
         # Open interest
         oi_resp = self._client.get("/contract/public/open-interest", params={"symbol": sym})
         self._raise(oi_resp, "open interest")
-        oi_data = oi_resp.json().get("data", {})
+        oi_data = oi_resp.json().get("data") or {}
         oi_value = _safe_float(oi_data.get("open_interest_value"))
 
         # Contract details for funding rate and price change
         det_resp = self._client.get("/contract/public/details", params={"symbol": sym})
         self._raise(det_resp, "contract details")
-        contracts = det_resp.json().get("data", {}).get("symbols", [])
+        contracts = (det_resp.json().get("data") or {}).get("symbols", [])
         contract = contracts[0] if contracts else {}
 
         funding_rate = _safe_float(contract.get("funding_rate"))
