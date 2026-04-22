@@ -58,6 +58,7 @@ audio_cache/
 cache/
 chrome-debug/
 image_cache/
+.claude/worktrees/
 logs/
 temp_vision_images/
 sandboxes/
