@@ -1049,16 +1049,19 @@ curl -s -X POST 'https://api-cloud-v2.bitmart.com/contract/private/set-position-
 
 > **Note:** Although the path prefix is `/account/v1/`, this endpoint uses the **futures Base URL** (`https://api-cloud-v2.bitmart.com`), not the spot Base URL.
 
+> **CRITICAL:** The `type` field is a **string enum** — NEVER an integer. Sending `1`, `2`, or any integer returns `code 60052` ("Biz Exception") and no funds move.
+
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | currency | String | Yes | Currency symbol (currently USDT only) |
 | amount | String | Yes | Transfer amount [0.01-10000000000] |
-| type | String | Yes | `"spot_to_contract"` or `"contract_to_spot"` |
+| type | String | Yes | `"spot_to_contract"` (Spot→Futures) or `"contract_to_spot"` (Futures→Spot) |
 | recvWindow | Long | No | Valid duration (0-60000]ms, default 5000 |
 
 ```bash
+# Futures → Spot (contract_to_spot)
 TIMESTAMP=$(date +%s000)
-BODY='{"currency":"USDT","amount":"1000","type":"spot_to_contract"}'
+BODY='{"currency":"USDT","amount":"300","type":"contract_to_spot"}'
 SIGN=$(echo -n "${TIMESTAMP}#${BITMART_API_MEMO}#${BODY}" | openssl dgst -sha256 -hmac "$BITMART_API_SECRET" | awk '{print $NF}')
 curl -s -X POST 'https://api-cloud-v2.bitmart.com/account/v1/transfer-contract' \
   -H "User-Agent: bitmart-skills/futures/v2026.3.23" \
@@ -1071,7 +1074,7 @@ curl -s -X POST 'https://api-cloud-v2.bitmart.com/account/v1/transfer-contract' 
 
 **Response:**
 ```json
-{ "code": 1000, "data": { "currency": "USDT", "amount": "1000" } }
+{ "code": 1000, "data": { "currency": "USDT", "amount": "300" } }
 ```
 
 ---

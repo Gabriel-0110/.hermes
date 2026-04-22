@@ -451,6 +451,7 @@ See `references/open-position.md`, `references/close-position.md`, `references/p
 | 40021 | Position does not exist | Verify position is still open before trying to close |
 | 40040 | Invalid leverage / mode constraint | Check leverage bracket and current position state; if position exists, keep current leverage + `open_type` |
 | 40012 | Parameter/state conflict | Commonly appears when leverage/mode conflicts with current position/order state; query `GET /contract/private/position-v2` and inherit existing leverage + `open_type` |
+| 60052 | Biz Exception (transfer) | The `type` field in `POST /account/v1/transfer-contract` is **wrong**. It MUST be the string `"spot_to_contract"` or `"contract_to_spot"` — NEVER an integer like `1` or `2`. Integers are only used for order `side`/`mode` fields, not for transfers. |
 | 429 | HTTP rate limit | Back off exponentially, check `X-BM-RateLimit-Reset` header |
 | 418 | IP banned | Stop all requests immediately; wait before retrying |
 | 403 | Cloudflare WAF block | Check IP reputation (VPN/cloud IPs are commonly challenged); wait 30-60 seconds and retry; do not auto-retry more than 3 times |
@@ -551,10 +552,12 @@ BitMart API is behind Cloudflare CDN. If you receive HTTP 403/503 and the respon
 
 ## Reference: Transfer Types
 
+> **CRITICAL:** The `type` field for `POST /account/v1/transfer-contract` is a **string enum**, NOT an integer. Do NOT use `1`, `2`, or any number. Using an integer will return `code 60052` (Biz Exception) with an empty `data` body and no funds will move.
+
 | Value | Description |
 |-------|-------------|
-| `spot_to_contract` | Spot wallet to futures wallet |
-| `contract_to_spot` | Futures wallet to spot wallet |
+| `"spot_to_contract"` | Spot wallet → Futures wallet |
+| `"contract_to_spot"` | Futures wallet → Spot wallet |
 
 ## Reference: Flow Types (Transaction History)
 
