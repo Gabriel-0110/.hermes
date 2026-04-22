@@ -13,6 +13,11 @@ from backend.integrations.execution.mode import (
     is_paper_mode,
     live_trading_blockers,
 )
+from backend.integrations.execution.normalization import (
+    float_or_none,
+    normalize_ccxt_order,
+    normalize_ccxt_trade,
+)
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
 
@@ -132,86 +137,97 @@ class CCXTExecutionClient:
             logger.warning("BitMart %s failed: %s", operation, exc.__class__.__name__)
             raise IntegrationError(f"BitMart {operation} failed.") from exc
 
-    def _isoformat(self, value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value.astimezone(timezone.utc).isoformat()
-        try:
-            return datetime.fromtimestamp(float(value) / 1000, tz=timezone.utc).isoformat()
-        except Exception:
-            return None
-
-    def _float_or_none(self, value: Any) -> float | None:
-        if value is None or value == "":
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     def _normalize_order(self, order: dict[str, Any]) -> ExecutionOrder:
-        info = order.get("info") or {}
-        order_id = order.get("id") or info.get("order_id") or info.get("orderId")
-        if not order_id:
-            raise IntegrationError("BitMart returned an order without an id.")
-        return ExecutionOrder(
-            order_id=str(order_id),
-            exchange=self.provider.name,
-            symbol=str(order.get("symbol") or info.get("symbol") or "unknown"),
-            side=order.get("side"),
-            order_type=order.get("type") or info.get("type"),
-            status=order.get("status") or info.get("state"),
-            client_order_id=order.get("clientOrderId") or info.get("clientOrderId"),
-            price=self._float_or_none(order.get("price")),
-            average_price=self._float_or_none(order.get("average")),
-            amount=self._float_or_none(order.get("amount")),
-            filled=self._float_or_none(order.get("filled")),
-            remaining=self._float_or_none(order.get("remaining")),
-            cost=self._float_or_none(order.get("cost")),
-            time_in_force=order.get("timeInForce") or info.get("timeInForce"),
-            post_only=order.get("postOnly"),
-            reduce_only=order.get("reduceOnly"),
-            created_at=self._isoformat(order.get("timestamp")),
-            updated_at=self._isoformat(order.get("lastUpdateTimestamp") or order.get("timestamp")),
-        )
+        return normalize_ccxt_order(provider_name=self.provider.name, order=order)
 
     def _normalize_trade(self, trade: dict[str, Any]) -> ExecutionTrade:
-        info = trade.get("info") or {}
-        trade_id = trade.get("id") or info.get("trade_id") or info.get("tradeId")
-        if not trade_id:
-            raise IntegrationError("BitMart returned a trade without an id.")
-        fee = trade.get("fee") or {}
-        return ExecutionTrade(
-            trade_id=str(trade_id),
-            order_id=trade.get("order") or info.get("order_id") or info.get("orderId"),
-            exchange=self.provider.name,
-            symbol=str(trade.get("symbol") or info.get("symbol") or "unknown"),
-            side=trade.get("side"),
-            price=self._float_or_none(trade.get("price")),
-            amount=self._float_or_none(trade.get("amount")),
-            cost=self._float_or_none(trade.get("cost")),
-            fee_cost=self._float_or_none(fee.get("cost")),
-            fee_currency=fee.get("currency"),
-            liquidity=trade.get("takerOrMaker"),
-            timestamp=self._isoformat(trade.get("timestamp")),
-        )
+        return normalize_ccxt_trade(provider_name=self.provider.name, trade=trade)
+
+    # ------------------------------------------------------------------
+    # Direct REST helpers (bypass CCXT for balance reads — KEYED only)
+    # ------------------------------------------------------------------
+
+    _SPOT_BALANCE_URL = "https://api-cloud.bitmart.com/account/v1/wallet"
+    _FUTURES_BALANCE_URL = "https://api-cloud-v2.bitmart.com/contract/private/assets-detail"
+    _REST_HEADERS_BASE = {"User-Agent": "hermes-bitmart-client/v1"}
+
+    def _fetch_spot_balances_rest(self) -> list[ExecutionBalance]:
+        """Fetch spot balances via the KEYED /account/v1/wallet endpoint (no signature required)."""
+        import requests  # already in requirements.txt
+
+        headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
+        try:
+            resp = requests.get(self._SPOT_BALANCE_URL, headers=headers, timeout=15)
+            resp.raise_for_status()
+        except Exception as exc:
+            raise IntegrationError(f"BitMart spot balance REST request failed: {exc}") from exc
+
+        body = resp.json()
+        if body.get("code") != 1000:
+            raise IntegrationError(
+                f"BitMart spot balance error {body.get('code')}: {body.get('message')}"
+            )
+
+        balances: list[ExecutionBalance] = []
+        for item in (body.get("data") or {}).get("wallet") or []:
+            # /account/v1/wallet uses "currency"; /spot/v1/wallet uses "id"
+            asset = item.get("currency") or item.get("id")
+            if not asset:
+                continue
+            available = float_or_none(item.get("available"))
+            frozen = float_or_none(item.get("frozen"))
+            total = None
+            if available is not None and frozen is not None:
+                total = available + frozen
+            elif available is not None:
+                total = available
+            balances.append(ExecutionBalance(asset=str(asset), free=available, used=frozen, total=total))
+        return balances
+
+    def _fetch_futures_balances_rest(self) -> list[ExecutionBalance]:
+        """Fetch futures balances via the KEYED /contract/private/assets-detail endpoint."""
+        import requests
+
+        headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
+        try:
+            resp = requests.get(self._FUTURES_BALANCE_URL, headers=headers, timeout=15)
+            resp.raise_for_status()
+        except Exception as exc:
+            raise IntegrationError(f"BitMart futures balance REST request failed: {exc}") from exc
+
+        body = resp.json()
+        if body.get("code") != 1000:
+            raise IntegrationError(
+                f"BitMart futures balance error {body.get('code')}: {body.get('message')}"
+            )
+
+        balances: list[ExecutionBalance] = []
+        for item in body.get("data") or []:
+            asset = item.get("currency")
+            if not asset:
+                continue
+            available = float_or_none(item.get("available_balance"))
+            frozen = float_or_none(item.get("frozen_balance"))
+            equity = float_or_none(item.get("equity"))
+            total = equity if equity is not None else (
+                (available or 0.0) + (frozen or 0.0) if available is not None else None
+            )
+            balances.append(ExecutionBalance(asset=str(asset), free=available, used=frozen, total=total))
+        return balances
 
     def get_exchange_balances(self) -> ExchangeBalances:
-        exchange = self._get_exchange()
-        balance = self._call_exchange("fetch_balance", exchange.fetch_balance)
-        balances: list[ExecutionBalance] = []
-        for asset, totals in (balance.get("total") or {}).items():
-            free_map = balance.get("free") or {}
-            used_map = balance.get("used") or {}
-            balances.append(
-                ExecutionBalance(
-                    asset=str(asset),
-                    free=self._float_or_none(free_map.get(asset)),
-                    used=self._float_or_none(used_map.get(asset)),
-                    total=self._float_or_none(totals),
-                )
-            )
+        self.require_credentials()
+        is_futures = self.account_type in ("contract", "futures", "swap")
+        try:
+            if is_futures:
+                balances = self._fetch_futures_balances_rest()
+            else:
+                balances = self._fetch_spot_balances_rest()
+        except IntegrationError:
+            raise
+        except Exception as exc:
+            raise IntegrationError(f"BitMart balance fetch failed: {exc}") from exc
+
         balances.sort(key=lambda item: item.asset)
         return ExchangeBalances(
             exchange=self.provider.name,

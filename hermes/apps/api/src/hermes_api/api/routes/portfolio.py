@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from hermes_api.core.security import require_api_key
+from hermes_api.domain.portfolio import BridgePortfolioResponse, BridgePortfolioSyncResponse
 from hermes_api.integrations.hermes_agent import (
     HermesAgentBridgeError,
     portfolio_state,
@@ -19,7 +20,7 @@ async def get_portfolio() -> dict[str, object]:
     """Return the latest known portfolio state (from DB snapshot)."""
     try:
         payload = portfolio_state()
-        return {"status": "live", "portfolio": payload}
+        return BridgePortfolioResponse(status="live", portfolio=payload).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -33,7 +34,7 @@ async def trigger_portfolio_sync(_: None = Depends(require_api_key)) -> dict[str
     """
     try:
         result = sync_portfolio()
-        return {"status": "live", "sync": result}
+        return BridgePortfolioSyncResponse(status="live", sync=result).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

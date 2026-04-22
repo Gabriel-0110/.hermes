@@ -67,6 +67,44 @@ def tradingview_store(*, db_path: Path | None = None) -> Any:
     return module.TradingViewStore(db_path=db_path)
 
 
+def _portfolio_envelope_from_snapshot(snapshot: Any | None, *, account_id: str) -> dict[str, Any]:
+    meta = {
+        "source": "get_portfolio_state",
+        "providers": [],
+        "warnings": [],
+        "ok": True,
+    }
+    if snapshot is None:
+        return {
+            "meta": {
+                **meta,
+                "warnings": ["Portfolio adapter not yet wired to exchange/account backend."],
+            },
+            "data": {
+                "account_id": account_id,
+                "total_equity_usd": None,
+                "cash_usd": None,
+                "exposure_usd": None,
+                "positions": [],
+                "snapshot_metadata": {"source": "uninitialized", "positions_count": 0},
+                "updated_at": None,
+            },
+        }
+
+    return {
+        "meta": meta,
+        "data": {
+            "account_id": snapshot.account_id,
+            "total_equity_usd": snapshot.total_equity_usd,
+            "cash_usd": snapshot.cash_usd,
+            "exposure_usd": snapshot.exposure_usd,
+            "positions": snapshot.positions or [],
+            "snapshot_metadata": snapshot.payload or {},
+            "updated_at": snapshot.snapshot_time.astimezone(UTC).isoformat(),
+        },
+    }
+
+
 def portfolio_state() -> dict[str, Any]:
     db_module = import_from_hermes_agent("backend.db")
     session_module = import_from_hermes_agent("backend.db.session")
@@ -78,40 +116,7 @@ def portfolio_state() -> dict[str, Any]:
             account_id=account_id
         )
 
-    if snapshot is None:
-        return {
-            "meta": {
-                "source": "get_portfolio_state",
-                "providers": [],
-                "warnings": ["Portfolio adapter not yet wired to exchange/account backend."],
-                "ok": True,
-            },
-            "data": {
-                "account_id": account_id,
-                "total_equity_usd": None,
-                "cash_usd": None,
-                "exposure_usd": None,
-                "positions": [],
-                "updated_at": None,
-            },
-        }
-
-    return {
-        "meta": {
-            "source": "get_portfolio_state",
-            "providers": [],
-            "warnings": [],
-            "ok": True,
-        },
-        "data": {
-            "account_id": snapshot.account_id,
-            "total_equity_usd": snapshot.total_equity_usd,
-            "cash_usd": snapshot.cash_usd,
-            "exposure_usd": snapshot.exposure_usd,
-            "positions": snapshot.positions or [],
-            "updated_at": snapshot.snapshot_time.astimezone(UTC).isoformat(),
-        },
-    }
+    return _portfolio_envelope_from_snapshot(snapshot, account_id=account_id)
 
 
 def trading_desk_manifest() -> dict[str, Any]:
@@ -267,6 +272,20 @@ def place_order(payload: dict[str, Any]) -> dict[str, Any]:
     return module.place_order(payload)
 
 
+def execution_safety_status(*, approval_id: str | None = None) -> dict[str, Any]:
+    """Return the centralized execution safety decision from hermes-agent."""
+    module = import_from_hermes_agent("backend.trading.safety")
+    decision = module.evaluate_execution_safety(approval_id=approval_id)
+    return {
+        "execution_mode": decision.execution_mode,
+        "blockers": list(decision.blockers),
+        "approval_required": decision.approval_required,
+        "kill_switch_active": decision.kill_switch_active,
+        "kill_switch_reason": decision.kill_switch_reason,
+        "live_allowed": decision.live_allowed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Risk approval helper
 # ---------------------------------------------------------------------------
@@ -287,3 +306,32 @@ def list_trade_candidates() -> dict[str, Any]:
     """Return the current list of scored trade candidates."""
     module = import_from_hermes_agent("backend.tools.list_trade_candidates")
     return module.list_trade_candidates()
+
+
+# ---------------------------------------------------------------------------
+# Controlled trading pipeline helpers
+# ---------------------------------------------------------------------------
+
+
+def evaluate_trade_proposal(payload: dict[str, Any]) -> dict[str, Any]:
+    module = import_from_hermes_agent("backend.trading")
+    proposal = module.TradeProposal.model_validate(payload)
+    result = module.evaluate_trade_proposal(proposal)
+    return result.model_dump(mode="json")
+
+
+def dispatch_trade_proposal(payload: dict[str, Any]) -> dict[str, Any]:
+    module = import_from_hermes_agent("backend.trading")
+    proposal = module.TradeProposal.model_validate(payload)
+    result = module.dispatch_trade_proposal(proposal)
+    return result.model_dump(mode="json")
+
+
+def position_monitor_snapshot(
+    *,
+    account_id: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    module = import_from_hermes_agent("backend.trading")
+    result = module.get_position_monitor_snapshot(account_id=account_id, refresh=refresh)
+    return result.model_dump(mode="json")

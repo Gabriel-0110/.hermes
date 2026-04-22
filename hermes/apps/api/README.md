@@ -1,10 +1,27 @@
 # Hermes API
 
-This FastAPI service is the backend entrypoint for Hermes. In the scaffold phase it exposes:
+This FastAPI service is the product/API bridge for Hermes. It is not the
+runtime source of truth for trading logic.
+
+In the current split architecture:
+
+- `hermes-agent/backend` owns workflows, typed proposal/risk/execution state,
+  approvals, observability, and canonical portfolio state
+- `hermes/apps/api` exposes a product-facing bridge over that runtime
+
+The bridge currently exposes:
 
 - a root metadata endpoint
 - a health check
 - versioned bridge routes for agents, execution, risk, resources, portfolio, and observability
+
+Current control-path coverage in the bridge includes:
+
+- proposal evaluation and submission
+- execution safety state
+- approval queue actions
+- position monitor and portfolio snapshot views
+- observability and timeline readouts
 
 ## Local Run
 
@@ -29,7 +46,8 @@ Repo-local and deployed runs should prefer `HERMES_API_KEY`.
 ## Design Notes
 
 - keep API boundaries thin
-- move reusable business logic into `packages/` over time
+- keep `hermes-agent/backend` as the runtime source of truth
 - treat risk and execution routes as high-scrutiny surfaces
+- preserve current route families rather than duplicating bridge surfaces
 - treat `/resources` as a descriptive capability catalog unless and until a
 	dedicated operational health surface exists

@@ -4,17 +4,28 @@
 
 ## 1. Executive Summary
 
-Hermes is a multi-agent cryptocurrency trading platform centered on a single **Agent App** that orchestrates models, tools, market data, execution logic, risk controls, observability, and operator-facing interfaces.
+Hermes is a multi-agent cryptocurrency trading platform with a **split runtime**
+architecture. The current system is centered on:
 
-The system is designed around five core ideas:
+- `hermes-agent/backend` as the runtime source of truth for workflows, risk,
+  execution control, observability, and canonical portfolio state
+- `hermes/apps/api` as the product/API bridge
+- `hermes/apps/web` as the operator-facing surface
 
-1. **One central agentic runtime** for reasoning and coordination
+The system is currently designed around five core ideas:
+
+1. **One runtime source of truth** in `hermes-agent/backend`, even though the
+   overall product remains split across backend, bridge, and web layers
 2. **Specialized agents** with clear roles and bounded responsibilities
 3. **Shared market intelligence infrastructure** that exposes data and actions as reusable tools
 4. **Mission Control** for human oversight, analytics, debugging, and intervention
 5. **Multi-model flexibility** across cloud APIs and local inference providers
 
-The result is a hybrid architecture where Hermes can reason, research, monitor, propose, validate, and execute trading actions while remaining observable, governable, and deployable across local and API-backed runtimes.
+The result is a hybrid architecture where Hermes can reason, research, monitor,
+propose, validate, and in limited cases execute trading actions while remaining
+observable and governable. This document describes the current direction and
+runtime split honestly; it should not be read as proof of a fully unified or
+production-mature live trading runtime.
 
 ---
 
@@ -42,8 +53,8 @@ Hermes should be able to:
 
 ## 3. High-Level System Domains
 
-### A. Hermes Agent App
-The central application runtime for all agentic workflows.
+### A. Hermes Agent Runtime
+The current runtime source of truth for agentic workflows and trading control.
 
 ### B. Agent Layer
 A set of specialized agents with distinct responsibilities.
@@ -51,8 +62,9 @@ A set of specialized agents with distinct responsibilities.
 ### C. Shared Intelligence Layer
 A common layer exposing data, tools, skills, and connectors to all agents.
 
-### D. Mission Control
-Human-facing control plane for oversight, dashboards, notifications, and operator intervention.
+### D. Product Bridge and Mission Control
+Human-facing API and web control surfaces for oversight, dashboards,
+notifications, and operator intervention.
 
 ### E. Model Provider Layer
 Cloud and local model backends used depending on latency, cost, privacy, and task type.
@@ -67,7 +79,9 @@ Containerized services, databases, local model runtimes, ingress paths, and oper
 
 ## 4. Hermes Agent App
 
-The **Hermes Agent App** is the central runtime and orchestration layer of the platform.
+`hermes-agent/backend` is the current runtime and orchestration layer of the
+platform. `hermes/apps/api` and `hermes/apps/web` should be treated as bridge
+and operator layers over that runtime rather than replacements for it.
 
 ### Responsibilities
 - route tasks to the correct agent
@@ -95,7 +109,10 @@ The **Hermes Agent App** is the central runtime and orchestration layer of the p
 - web application and dashboard surfaces
 
 ### Why this matters
-This design makes Hermes channel-agnostic and model-agnostic. The runtime remains stable even as providers, models, or interfaces evolve.
+This design keeps the runtime authority in one place today, even though the
+overall product is still split across multiple repositories and app layers.
+It makes Hermes channel-agnostic and model-agnostic without pretending that the
+entire product has already been unified into one packaged runtime.
 
 ### Current Implemented Application Stack
 - **Backend API:** FastAPI
@@ -106,6 +123,15 @@ This design makes Hermes channel-agnostic and model-agnostic. The runtime remain
 - **Primary local model gateways:** Ollama and LM Studio
 - **Primary cloud model providers:** OpenAI API and Anthropic API
 - **Primary operator channels currently in scope:** Telegram, Slack, CLI, and web/dashboard surfaces
+
+### Current execution control path
+
+The current control path is:
+
+`proposal or signal -> risk and policy decision -> approval and mode gate -> execution -> observability and portfolio state`
+
+Today that path is primarily implemented in `hermes-agent/backend`, with the
+product API and web layers surfacing it to operators.
 
 ---
 
@@ -225,7 +251,10 @@ Crypto news, macro headlines, social sentiment summaries, event alerts, and narr
 Wallet flows, exchange inflows/outflows, protocol activity, token unlock schedules, ecosystem events, and chain-level context relevant to market behavior.
 
 ### 11. Execution / Broker / Exchange Connector
-Order placement, cancellation, modification, fill status, exchange metadata, account interaction, and execution telemetry across supported venues.
+Order placement, cancellation, modification, fill status, exchange metadata,
+account interaction, and execution telemetry across supported venues. Current
+live execution support is limited and guarded, with BitMart / CCXT as the
+existing live connector path rather than a broad exchange-bot execution layer.
 
 ### 12. Memory / Knowledge / Research Store
 Persisted research notes, agent memory, prior decisions, trade rationales, post-mortems, learned patterns, and reusable internal knowledge.

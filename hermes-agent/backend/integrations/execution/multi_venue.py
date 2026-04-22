@@ -13,6 +13,11 @@ from backend.integrations.execution.mode import (
     is_paper_mode,
     live_trading_blockers,
 )
+from backend.integrations.execution.normalization import (
+    float_or_none,
+    normalize_ccxt_order,
+    normalize_ccxt_trade,
+)
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
 
@@ -212,24 +217,6 @@ class VenueExecutionClient:
             logger.warning("%s %s failed: %s", self.provider.name, operation, exc.__class__.__name__)
             raise IntegrationError(f"{self.provider.name} {operation} failed.") from exc
 
-    def _isoformat(self, value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value.astimezone(timezone.utc).isoformat()
-        try:
-            return datetime.fromtimestamp(float(value) / 1000, tz=timezone.utc).isoformat()
-        except Exception:
-            return None
-
-    def _float_or_none(self, value: Any) -> float | None:
-        if value is None or value == "":
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     def estimate_fee_bps(self, symbol: str | None = None, *, order_type: str = "market") -> float:
         fee_side = "MAKER" if order_type in {"limit", "stop_limit"} else "TAKER"
         env_value = os.getenv(f"{self._env_prefix}_{fee_side}_FEE_BPS", "").strip()
@@ -268,8 +255,8 @@ class VenueExecutionClient:
         snapshot = self.get_public_order_book(symbol=symbol, limit=max(depth_levels, 5))
         bids = snapshot.get("bids") or []
         asks = snapshot.get("asks") or []
-        best_bid = self._float_or_none(bids[0][0]) if bids else None
-        best_ask = self._float_or_none(asks[0][0]) if asks else None
+        best_bid = float_or_none(bids[0][0]) if bids else None
+        best_ask = float_or_none(asks[0][0]) if asks else None
         mid = None
         if best_bid and best_ask:
             mid = (best_bid + best_ask) / 2
@@ -287,8 +274,8 @@ class VenueExecutionClient:
         for level in levels[:depth_levels]:
             if len(level) < 2:
                 continue
-            level_price = self._float_or_none(level[0]) or 0.0
-            level_amount = self._float_or_none(level[1]) or 0.0
+            level_price = float_or_none(level[0]) or 0.0
+            level_amount = float_or_none(level[1]) or 0.0
             available_notional_usd += level_price * level_amount
 
         reference_price = price or mid
@@ -314,51 +301,10 @@ class VenueExecutionClient:
         }
 
     def _normalize_order(self, order: dict[str, Any]) -> ExecutionOrder:
-        info = order.get("info") or {}
-        order_id = order.get("id") or info.get("order_id") or info.get("orderId")
-        if not order_id:
-            raise IntegrationError(f"{self.provider.name} returned an order without an id.")
-        return ExecutionOrder(
-            order_id=str(order_id),
-            exchange=self.provider.name,
-            symbol=str(order.get("symbol") or info.get("symbol") or "unknown"),
-            side=order.get("side"),
-            order_type=order.get("type") or info.get("type"),
-            status=order.get("status") or info.get("state"),
-            client_order_id=order.get("clientOrderId") or info.get("clientOrderId"),
-            price=self._float_or_none(order.get("price")),
-            average_price=self._float_or_none(order.get("average")),
-            amount=self._float_or_none(order.get("amount")),
-            filled=self._float_or_none(order.get("filled")),
-            remaining=self._float_or_none(order.get("remaining")),
-            cost=self._float_or_none(order.get("cost")),
-            time_in_force=order.get("timeInForce") or info.get("timeInForce"),
-            post_only=order.get("postOnly"),
-            reduce_only=order.get("reduceOnly"),
-            created_at=self._isoformat(order.get("timestamp")),
-            updated_at=self._isoformat(order.get("lastUpdateTimestamp") or order.get("timestamp")),
-        )
+        return normalize_ccxt_order(provider_name=self.provider.name, order=order)
 
     def _normalize_trade(self, trade: dict[str, Any]) -> ExecutionTrade:
-        info = trade.get("info") or {}
-        trade_id = trade.get("id") or info.get("trade_id") or info.get("tradeId")
-        if not trade_id:
-            raise IntegrationError(f"{self.provider.name} returned a trade without an id.")
-        fee = trade.get("fee") or {}
-        return ExecutionTrade(
-            trade_id=str(trade_id),
-            order_id=trade.get("order") or info.get("order_id") or info.get("orderId"),
-            exchange=self.provider.name,
-            symbol=str(trade.get("symbol") or info.get("symbol") or "unknown"),
-            side=trade.get("side"),
-            price=self._float_or_none(trade.get("price")),
-            amount=self._float_or_none(trade.get("amount")),
-            cost=self._float_or_none(trade.get("cost")),
-            fee_cost=self._float_or_none(fee.get("cost")),
-            fee_currency=fee.get("currency"),
-            liquidity=trade.get("takerOrMaker"),
-            timestamp=self._isoformat(trade.get("timestamp")),
-        )
+        return normalize_ccxt_trade(provider_name=self.provider.name, trade=trade)
 
     def get_exchange_balances(self) -> ExchangeBalances:
         exchange = self._get_exchange()
@@ -370,9 +316,9 @@ class VenueExecutionClient:
             balances.append(
                 ExecutionBalance(
                     asset=str(asset),
-                    free=self._float_or_none(free_map.get(asset)),
-                    used=self._float_or_none(used_map.get(asset)),
-                    total=self._float_or_none(totals),
+                    free=float_or_none(free_map.get(asset)),
+                    used=float_or_none(used_map.get(asset)),
+                    total=float_or_none(totals),
                 )
             )
         balances.sort(key=lambda item: item.asset)

@@ -19,6 +19,20 @@ logic, shared storage, TradingView ingestion, and observability live in
 `hermes-agent`. The `hermes/` repo should be treated as the product shell and
 operator-facing API/UI layer.
 
+## Current control path
+
+The current typed control path lives primarily in `hermes-agent/backend`:
+
+1. proposal or signal enters the runtime
+2. proposal normalization and policy/risk evaluation run
+3. mode blockers, kill switch, and approval queue checks are applied
+4. execution is either simulated in paper mode or routed through the current
+   BitMart / CCXT live connector path
+5. observability history and canonical portfolio/position state are updated
+
+The bridge and web layers surface that state, but they do not replace the
+runtime’s authority.
+
 ## Workspace layout
 
 - `hermes-agent/`
@@ -217,6 +231,10 @@ convenience. Treat it as local-only behavior, not a deployment default.
 - The `hermes/` UI depends on API bridge routes that import sibling
   `hermes-agent` modules directly.
 - TradingView MCP is still an external dependency outside this repo.
+- Paper mode is safer than live mode but is still a lightweight simulation, not
+  a full exchange-grade paper engine.
+- Live execution uses explicit blockers, approvals, and kill switch support,
+  but it should not be treated as mature unattended exchange-bot infrastructure.
 - Full execution hardening and operator auth are not complete yet.
 
 ## Verification commands

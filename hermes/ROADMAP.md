@@ -29,9 +29,11 @@
 
 ## Phase 4: Execution and Governance
 
-- add paper trading and sandboxed execution connectors
-- enforce approval gates and policy evaluation
-- implement audit logs, replay, and incident review
+- extend the current typed proposal -> risk/policy -> approval/mode gate ->
+  execution -> observability/portfolio path
+- strengthen paper-mode simulation and live-mode blockers
+- improve approval gates, audit logs, replay, and incident review
+- tighten execution idempotency and duplicate protection
 
 ## Phase 5: Hardening
 

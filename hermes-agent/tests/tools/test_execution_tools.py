@@ -2,9 +2,11 @@ from types import SimpleNamespace
 
 import backend.tools.get_exchange_balances as balances_module
 import backend.tools.place_order as place_order_module
+from backend.integrations.execution.normalization import execution_order_payload, normalize_ccxt_order
 from backend.models import ExecutionOrder
 from backend.tools.get_exchange_balances import get_exchange_balances
 from backend.tools.place_order import place_order
+from backend.trading.models import ExecutionOutcome, ExecutionRequest, ExecutionResult
 from backend.integrations.execution.mode import (
     LIVE_TRADING_ACK_PHRASE,
     current_trading_mode,
@@ -101,6 +103,17 @@ def test_place_order_uses_smart_selected_venue(monkeypatch):
         },
     )
     monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
 
     payload = place_order(
         {
@@ -114,6 +127,65 @@ def test_place_order_uses_smart_selected_venue(monkeypatch):
     assert payload["meta"]["ok"] is True
     assert payload["data"]["exchange"] == "BINANCE"
     assert payload["data"]["routing"]["selected_venue"] == "binance"
+    assert payload["data"]["execution_request"]["symbol"] == "BTC/USDT"
+    assert payload["data"]["execution_result"]["status"] == "filled"
+    assert payload["data"]["execution_result"]["execution_mode"] == "live"
+    assert payload["data"]["execution_result"]["payload"]["exchange_order"]["exchange"] == "BINANCE"
+    assert payload["data"]["execution_result"]["payload"]["exchange_order"]["routing"]["selected_venue"] == "binance"
+
+
+def test_normalize_ccxt_order_maps_common_bitmart_fields() -> None:
+    normalized = normalize_ccxt_order(
+        provider_name="BITMART",
+        order={
+            "id": "12345",
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "type": "market",
+            "status": "open",
+            "clientOrderId": "client-1",
+            "price": "62500.5",
+            "average": "62495.1",
+            "amount": "0.2",
+            "filled": "0.1",
+            "remaining": "0.1",
+            "cost": "6249.51",
+            "timeInForce": "GTC",
+            "postOnly": False,
+            "reduceOnly": False,
+            "timestamp": 1710000000000,
+        },
+    )
+
+    assert normalized.order_id == "12345"
+    assert normalized.exchange == "BITMART"
+    assert normalized.symbol == "BTC/USDT"
+    assert normalized.price == 62500.5
+    assert normalized.amount == 0.2
+    assert normalized.created_at is not None
+
+
+def test_execution_order_payload_keeps_normalized_shape_with_request_context() -> None:
+    payload = execution_order_payload(
+        ExecutionOrder(
+            order_id="ord_123",
+            exchange="BITMART",
+            symbol="BTC/USDT",
+            side="buy",
+            order_type="market",
+            amount=0.25,
+            status="open",
+        ),
+        request_id="exec_req_123",
+        idempotency_key="idem_123",
+        routing={"selected_venue": "bitmart", "mode": "single_venue"},
+    )
+
+    assert payload["order_id"] == "ord_123"
+    assert payload["exchange"] == "BITMART"
+    assert payload["request_id"] == "exec_req_123"
+    assert payload["idempotency_key"] == "idem_123"
+    assert payload["routing"]["selected_venue"] == "bitmart"
 
 
 def test_execution_mode_defaults_to_paper(monkeypatch):
@@ -136,3 +208,79 @@ def test_execution_mode_requires_explicit_live_unlock(monkeypatch):
     assert current_trading_mode() == "live"
     assert is_paper_mode() is False
     assert live_trading_enabled() is True
+
+
+def test_place_order_rejects_live_execution_in_paper_mode():
+    payload = place_order(
+        {
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "amount": 0.1,
+        }
+    )
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "paper_mode_active"
+    assert payload["data"]["execution_result"]["status"] == "blocked"
+    assert payload["data"]["execution_result"]["execution_mode"] == "paper"
+
+
+def test_place_order_requires_approval_id_when_live_approvals_enabled(monkeypatch):
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.setenv("HERMES_ENABLE_LIVE_TRADING", "true")
+    monkeypatch.setenv("HERMES_LIVE_TRADING_ACK", LIVE_TRADING_ACK_PHRASE)
+    monkeypatch.setenv("HERMES_REQUIRE_APPROVAL", "true")
+
+    payload = place_order(
+        {
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "amount": 0.1,
+        }
+    )
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "approval_required"
+    assert payload["data"]["execution_result"]["reason"] == "approval_required"
+
+
+def test_place_order_blocks_live_mode_when_unlock_requirements_are_missing(monkeypatch):
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.delenv("HERMES_ENABLE_LIVE_TRADING", raising=False)
+    monkeypatch.delenv("HERMES_LIVE_TRADING_ACK", raising=False)
+
+    payload = place_order(
+        {
+            "symbol": "BTC/USDT",
+            "side": "buy",
+            "amount": 0.1,
+        }
+    )
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "live_trading_disabled"
+    assert payload["data"]["execution_result"]["status"] == "blocked"
+    assert payload["data"]["execution_result"]["reason"] == "live_trading_disabled"
+
+
+def test_execution_outcome_keeps_typed_request_and_result_fields():
+    outcome = ExecutionOutcome(
+        request=ExecutionRequest(
+            request_id="exec_req_test",
+            symbol="BTCUSDT",
+            side="buy",
+            order_type="market",
+            amount=0.25,
+        ),
+        result=ExecutionResult(
+            symbol="BTCUSDT",
+            order_id="ord-1",
+            status="filled",
+            success=True,
+            execution_mode="live",
+        ),
+    )
+
+    assert outcome.request.request_id == "exec_req_test"
+    assert outcome.request.idempotency_key
+    assert outcome.result.status == "filled"

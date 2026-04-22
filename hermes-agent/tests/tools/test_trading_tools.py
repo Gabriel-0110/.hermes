@@ -56,7 +56,10 @@ def test_get_crypto_prices_fails_safely_without_credentials(monkeypatch):
     assert payload["data"]["error"] in {"provider_not_configured", "provider_failure"}
 
 
-def test_registry_dispatch_returns_json_for_trading_tool():
+def test_registry_dispatch_returns_json_for_trading_tool(monkeypatch):
+    monkeypatch.delenv("BITMART_API_KEY", raising=False)
+    monkeypatch.delenv("BITMART_SECRET", raising=False)
+    monkeypatch.delenv("BITMART_MEMO", raising=False)
     raw = registry.dispatch("get_execution_status", {})
     parsed = json.loads(raw)
     assert parsed["meta"]["source"] == "get_execution_status"

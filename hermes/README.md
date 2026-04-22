@@ -1,10 +1,16 @@
 # Hermes Cryptocurrency AI Trader
 
-Hermes is a production-oriented monorepo scaffold for a multi-agent cryptocurrency trading platform. The repository is structured to support specialized agents, shared market intelligence, Mission Control workflows, operator channels, and future execution hardening without pretending the system is complete today.
+Hermes is a production-oriented monorepo for a multi-agent cryptocurrency trading product shell. The repository is structured to support specialized agents, shared market intelligence, Mission Control workflows, operator channels, and execution hardening work without pretending the system is complete today.
 
 The current preferred local runtime uses **Hermes Agents** from the sibling
-`hermes-agent/` workspace as the backend source of truth, with this repo
-providing the API bridge and operator-facing web shell.
+`hermes-agent/` workspace as the backend source of truth. In the current split
+architecture:
+
+- `hermes-agent/backend` is the runtime source of truth for workflows, typed
+  proposal/risk/execution handling, approvals, observability, and canonical
+  portfolio state
+- `hermes/apps/api` is the product/API bridge over that backend runtime
+- `hermes/apps/web` is the operator-facing Mission Control surface
 
 ## Project Overview
 
@@ -18,24 +24,40 @@ Hermes is designed around:
 - cloud model providers through OpenAI and Anthropic
 - channel surfaces spanning Telegram, Slack, CLI, and web
 
-The current repository state is a clean foundation. It includes documentation, developer tooling, starter services, shared package boundaries, and placeholder modules aligned with the architecture. It does **not** yet include live trading logic, exchange execution, strategy engines, or production-grade governance controls.
+The current repository state is a partially integrated product shell. It
+includes the API bridge, operator web app, docs, and shared package boundaries.
+The live trading runtime itself still depends on the sibling `hermes-agent/`
+workspace. Hermes now has typed control-path pieces and BitMart/CCXT-backed
+execution support in the runtime, but it does **not** yet represent a
+production-ready autonomous trading system.
 
 ## Architecture Summary
 
 Hermes is organized into three practical planes:
 
-1. **Agent plane** for orchestrator, research, portfolio, risk, and strategy roles.
-2. **Shared Intelligence Layer** for market data, tape, indicators, derivatives, portfolio state, risk policy, strategy libraries, sentiment, on-chain context, execution connectors, and memory.
-3. **Mission Control** for dashboards, notifications, observability, and human review.
+1. **Runtime plane** in `hermes-agent/backend` for orchestrator, research,
+   portfolio, risk, strategy, execution control, approvals, observability, and
+   canonical portfolio state.
+2. **Bridge plane** in `hermes/apps/api` for product-facing API routes over the
+   runtime.
+3. **Operator plane** in `hermes/apps/web` for dashboards, review, and human
+   intervention.
 
-Execution and governance remain explicit first-class concerns rather than hidden implementation details. The scaffold makes room for policy-first approvals, audit trails, and operator intervention before any live execution is introduced.
+The current control path is:
+
+`proposal or signal -> risk/policy decision -> approval and mode gates -> execution -> observability and portfolio state`
+
+Execution and governance remain explicit first-class concerns rather than hidden
+implementation details. Current live execution is guarded by trading mode,
+live-trading unlock flags, acknowledgment phrase, kill switch, and approval
+queue behavior where configured.
 
 ## Repository Structure
 
 ```text
 hermes/
   apps/
-    api/                  FastAPI backend service
+    api/                  FastAPI bridge service over hermes-agent runtime
     web/                  Next.js Mission Control frontend
   packages/
     agents/               Specialized agent modules
@@ -166,19 +188,30 @@ See `.env.example` for the full starter list. Important groups:
 
 The repository currently provides:
 
-- monorepo structure aligned with the Hermes architecture
-- runnable FastAPI starter service
-- runnable Next.js starter dashboard
+- monorepo structure aligned with the current split Hermes architecture
+- runnable FastAPI bridge service
+- runnable Next.js operator dashboard shell
 - package placeholders for agents, tools, resources, policies, and observability
 - local development scripts and CI workflows
 
+The combined workspace currently provides:
+
+- typed proposal -> risk/policy -> execution request/result flow in
+  `hermes-agent/backend`
+- paper-mode execution simulation
+- BitMart / CCXT-backed live connector path with explicit blockers
+- kill switch support
+- approval queue support
+- portfolio snapshot and sync path used as canonical position state
+
 The repository does not yet provide:
 
-- real exchange connectors
+- a single packaged runtime that unifies `hermes-agent` and `hermes`
+- exchange-grade position accounting or fill reconciliation
 - production-grade secret management
-- strategy evaluation and backtesting
-- durable workflow orchestration
-- policy-complete execution approval chains
+- mature strategy evaluation and backtesting
+- durable execution idempotency and replay controls
+- production-ready autonomous live trading
 
 ## Roadmap Summary
 
@@ -192,4 +225,8 @@ See [ROADMAP.md](ROADMAP.md) for the fuller phased plan.
 
 ## Important Disclaimer
 
-This repository is a scaffold, not a live trading system. Trading logic, exchange execution, capital controls, authentication, auditability, and failure handling all require substantial additional hardening before any production or real-funds use.
+This repository is not a finished exchange bot or production live-trading
+system. Hermes is moving toward exchange-bot-like behavior through typed
+control flow, explicit risk gates, approvals, and portfolio tracking, but the
+current stack still has split-runtime boundaries and material hardening work
+remaining before any real-funds use.

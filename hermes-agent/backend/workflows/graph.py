@@ -44,10 +44,28 @@ def _publish_execution_requested(state: TradingWorkflowState, output: Orchestrat
     try:
         from backend.event_bus.publisher import publish_trading_event
         from backend.event_bus.models import TradingEvent
+        from backend.trading.models import ExecutionRequest
 
         intent = output.execution_intent
         if intent is None:
             return
+
+        request = ExecutionRequest(
+            symbol=intent.symbol or state.input_event.symbol or "",
+            side=intent.action.lower() if intent.action.lower() in {"buy", "sell"} else "buy",
+            order_type="market",
+            size_usd=intent.size_usd,
+            amount=intent.size_usd,
+            rationale=intent.rationale,
+            timeframe=intent.timeframe,
+            stop_guidance=intent.stop_guidance,
+            source_agent="trading_workflow_graph",
+            metadata={
+                "workflow_id": state.workflow_id,
+                "signal_event_id": state.input_event.event_id,
+                "input_correlation_id": state.input_event.correlation_id,
+            },
+        )
 
         event = TradingEvent(
             event_type="execution_requested",
@@ -57,28 +75,16 @@ def _publish_execution_requested(state: TradingWorkflowState, output: Orchestrat
             causation_id=state.workflow_id,
             producer="trading_workflow_graph",
             workflow_id=state.workflow_id,
-            payload={
-                "symbol": intent.symbol or state.input_event.symbol or "",
-                # Map action→side (buy/sell); the worker normalises further
-                "side": intent.action.lower() if intent.action.lower() in {"buy", "sell"} else "buy",
-                "order_type": "market",
-                # size_usd is the notional; amount in base units is left for the worker
-                # to determine from live price. We pass size_usd so the worker can compute it.
-                "size_usd": intent.size_usd,
-                "amount": intent.size_usd,  # worker overrides with base-unit amount at execution time
-                "price": None,
-                "strategy": intent.timeframe,
-                "rationale": intent.rationale,
-                "stop_guidance": intent.stop_guidance,
-                "workflow_id": state.workflow_id,
-            },
+            payload=request.model_dump(mode="json"),
+            metadata={"execution_request_id": request.request_id, "idempotency_key": request.idempotency_key},
         )
         publish_trading_event(event)
         logger.info(
-            "workflow: published execution_requested for symbol=%s side=%s workflow_id=%s",
+            "workflow: published execution_requested for symbol=%s side=%s workflow_id=%s request_id=%s",
             event.symbol,
             intent.side,
             state.workflow_id,
+            request.request_id,
         )
     except Exception as exc:
         logger.warning("workflow: failed to publish execution_requested: %s", exc)

@@ -3,34 +3,32 @@ from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
+from hermes_api.domain.execution import TradeProposalPayload
+from hermes_api.domain.execution import (
+    BridgeExecutionDispatchResponse,
+    BridgeExecutionEventsResponse,
+    BridgeExecutionPlaceResponse,
+    BridgeExecutionPolicyResponse,
+    BridgeExecutionSafety,
+    BridgeExecutionSurface,
+    BridgeExecutionSurfaceResponse,
+    BridgePendingSignalsResponse,
+)
+from hermes_api.domain.portfolio import BridgePositionMonitorResponse
 from hermes_api.core.config import get_settings
 from hermes_api.core.security import require_api_key
 from hermes_api.integrations.hermes_agent import (
+    dispatch_trade_proposal,
+    evaluate_trade_proposal,
+    execution_safety_status,
     HermesAgentBridgeError,
     observability_service,
     place_order,
+    position_monitor_snapshot,
     tradingview_store,
 )
 
 router = APIRouter()
-
-
-_LIVE_TRADING_ACK_PHRASE = "I_ACKNOWLEDGE_LIVE_TRADING_RISK"
-
-
-def _live_execution_blockers() -> list[str]:
-    settings = get_settings()
-    blockers: list[str] = []
-    if settings.hermes_trading_mode.lower() != "live":
-        blockers.append("HERMES_TRADING_MODE must be set to 'live'.")
-    if not settings.hermes_enable_live_trading:
-        blockers.append("HERMES_ENABLE_LIVE_TRADING=true is required.")
-    if settings.hermes_live_trading_ack.strip() != _LIVE_TRADING_ACK_PHRASE:
-        blockers.append(
-            "HERMES_LIVE_TRADING_ACK must equal "
-            f"{_LIVE_TRADING_ACK_PHRASE!r}."
-        )
-    return blockers
 
 
 @router.get("/")
@@ -46,20 +44,23 @@ async def get_execution_surface() -> dict[str, object]:
         recent_execution_events = service.get_execution_event_history(limit=20)
         bitmart_configured = bool(os.getenv("BITMART_API_KEY") and os.getenv("BITMART_SECRET"))
         settings = get_settings()
-        live_blockers = _live_execution_blockers()
-        return {
-            "status": "live",
-            "execution": {
-                "exchange": "BITMART",
-                "configured": bitmart_configured,
-                "trading_mode": settings.hermes_trading_mode,
-                "live_trading_enabled": not live_blockers,
-                "live_trading_blockers": live_blockers,
-                "pending_signal_events": pending_events,
-                "pending_signal_count": len(pending_events),
-                "recent_execution_events": recent_execution_events,
-            },
-        }
+        safety = BridgeExecutionSafety.model_validate(execution_safety_status())
+        return BridgeExecutionSurfaceResponse(
+            status="live",
+            execution=BridgeExecutionSurface(
+                exchange="BITMART",
+                configured=bitmart_configured,
+                trading_mode=settings.hermes_trading_mode,
+                safety=safety,
+                live_trading_enabled=safety.live_allowed,
+                live_trading_blockers=safety.blockers,
+                approval_required=safety.approval_required,
+                kill_switch_active=safety.kill_switch_active,
+                pending_signal_events=pending_events,
+                pending_signal_count=len(pending_events),
+                recent_execution_events=recent_execution_events,
+            ),
+        ).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -77,7 +78,7 @@ async def get_pending_signal_events(
             delivery_status="pending",
             symbol=symbol,
         )
-        return {"status": "live", "count": len(rows), "events": rows}
+        return BridgePendingSignalsResponse(status="live", count=len(rows), events=rows).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -89,7 +90,7 @@ async def get_recent_execution_events(
     try:
         service = observability_service()
         rows = service.get_execution_event_history(limit=limit)
-        return {"status": "live", "count": len(rows), "events": rows}
+        return BridgeExecutionEventsResponse(status="live", count=len(rows), events=rows).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -109,11 +110,16 @@ async def place_trade_order(
     Requires BitMart credentials in the backend environment and will be
     rejected if the global kill switch is active or trading mode is "paper".
     """
-    live_blockers = _live_execution_blockers()
-    if live_blockers:
+    safety = BridgeExecutionSafety.model_validate(execution_safety_status())
+    if not safety.live_allowed:
         raise HTTPException(
             status_code=403,
-            detail={"message": "Live execution is blocked.", "blockers": live_blockers},
+            detail={
+                "message": "Live execution is blocked.",
+                "blockers": safety.blockers,
+                "approval_required": safety.approval_required,
+                "kill_switch_active": safety.kill_switch_active,
+            },
         )
     try:
         result = place_order(
@@ -128,9 +134,47 @@ async def place_trade_order(
         )
         if not result.get("ok", True):
             raise HTTPException(status_code=400, detail=result)
-        return {"status": "live", "order": result}
+        return BridgeExecutionPlaceResponse(status="live", order=result).model_dump(mode="json")
     except HTTPException:
         raise
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/proposals/evaluate")
+async def evaluate_execution_proposal(
+    proposal: TradeProposalPayload,
+) -> dict[str, object]:
+    """Evaluate a trade proposal through the policy/risk engine without dispatching it."""
+    try:
+        result = evaluate_trade_proposal(proposal.model_dump(mode="json"))
+        return BridgeExecutionPolicyResponse(status="live", policy_decision=result).model_dump(mode="json")
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/proposals/submit")
+async def submit_execution_proposal(
+    proposal: TradeProposalPayload,
+    _: None = Depends(require_api_key),
+) -> dict[str, object]:
+    """Validate and dispatch a trade proposal into the controlled execution path."""
+    try:
+        result = dispatch_trade_proposal(proposal.model_dump(mode="json"))
+        return BridgeExecutionDispatchResponse(status="live", dispatch=result).model_dump(mode="json")
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/positions/monitor")
+async def get_position_monitor(
+    refresh: bool = Query(default=False),
+    account_id: str | None = Query(default=None),
+) -> dict[str, object]:
+    """Return a compact position-monitoring snapshot for the active portfolio."""
+    try:
+        result = position_monitor_snapshot(account_id=account_id, refresh=refresh)
+        return BridgePositionMonitorResponse(status="live", monitor=result).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

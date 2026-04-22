@@ -8,17 +8,18 @@ import logging
 import os
 import sys
 
+from backend.integrations.execution.normalization import execution_order_payload
 from .consumer import RedisStreamWorker
 from .models import TradingEventEnvelope
+from backend.trading.lifecycle_notifications import (
+    notify_approval_required,
+    notify_kill_switch_blocked,
+    notify_live_execution_failed,
+    notify_live_execution_submitted,
+    notify_paper_execution_completed,
+)
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Kill-switch helpers (read-only — the write path lives in get_risk_approval)
-# ---------------------------------------------------------------------------
-
-_KILL_SWITCH_KEY = "hermes:risk:kill_switch"
-
 
 _LIMITS_KEY = "hermes:risk:limits"
 _EQUITY_PEAK_KEY = "hermes:risk:equity_peak"
@@ -66,28 +67,13 @@ def _check_and_enforce_drawdown() -> bool:
                 logger.error("workers: failed to set kill switch: %s", exc)
                 # Manually write to Redis as fallback
                 redis.set(
-                    _KILL_SWITCH_KEY,
+                    "hermes:risk:kill_switch",
                     json.dumps({"active": True, "reason": reason}),
                 )
             return True
     except Exception as exc:
         logger.warning("workers: drawdown check failed: %s", exc)
     return False
-
-
-def _kill_switch_active() -> bool:
-    """Return True if the global kill switch is set in Redis."""
-    try:
-        from backend.redis_client import get_redis_client
-
-        raw = get_redis_client().get(_KILL_SWITCH_KEY)
-        if raw:
-            return bool(json.loads(raw).get("active"))
-    except Exception as exc:
-        logger.warning("workers: kill-switch read failed: %s", exc)
-    return False
-
-
 # ---------------------------------------------------------------------------
 # Orchestrator handler — routes signal events into the trading workflow graph
 # ---------------------------------------------------------------------------
@@ -172,7 +158,25 @@ def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
 def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
     """Route an approved execution request through the CCXT client (paper-mode safe)."""
     ev = event.event
-    payload = ev.payload
+    try:
+        from backend.trading.models import ExecutionRequest
+
+        request = ExecutionRequest.model_validate(ev.payload)
+    except Exception as exc:
+        logger.error(
+            "execution_handler: malformed execution_requested payload for event_id=%s: %s",
+            ev.event_id,
+            exc,
+        )
+        return True
+    payload = request.model_dump(mode="json")
+    logger.info(
+        "execution_handler: received execution_requested request_id=%s proposal_id=%s idempotency_key=%s symbol=%s",
+        request.request_id,
+        request.proposal_id,
+        request.idempotency_key,
+        request.symbol,
+    )
 
     # Drawdown check — auto-trigger kill switch if breach detected
     if _check_and_enforce_drawdown():
@@ -181,22 +185,92 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
             "rejecting execution_requested for symbol=%s",
             ev.symbol,
         )
+        from backend.trading.models import ExecutionOutcome, ExecutionResult, RiskRejectionReason
+
+        _record_execution_event(
+            event,
+            outcome=ExecutionOutcome.from_result(
+                request,
+                ExecutionResult.blocked(
+                    symbol=request.symbol,
+                    execution_mode="paper" if os.getenv("HERMES_TRADING_MODE", "paper").lower() != "live" else "live",
+                    reason=RiskRejectionReason.DRAWDOWN_LIMIT_BREACHED,
+                    correlation_id=ev.correlation_id,
+                    workflow_id=ev.workflow_id,
+                    payload={**payload, "blocking_stage": "drawdown_guard"},
+                ),
+            ),
+        )
+        notify_kill_switch_blocked(
+            symbol=ev.symbol or request.symbol or "unknown",
+            reason="Drawdown limit breached — kill switch auto-activated.",
+            trigger="drawdown",
+        )
         return True
 
+    from backend.trading.safety import evaluate_execution_safety
+
+    safety = evaluate_execution_safety(approval_id=payload.get("approval_id"))
+
     # Hard kill-switch check
-    if _kill_switch_active():
+    if safety.kill_switch_active:
         logger.warning(
             "execution_handler: kill switch active — rejecting execution_requested for symbol=%s",
             ev.symbol,
+        )
+        from backend.trading.models import ExecutionOutcome, ExecutionResult, RiskRejectionReason
+
+        _record_execution_event(
+            event,
+            outcome=ExecutionOutcome.from_result(
+                request,
+                ExecutionResult.blocked(
+                    symbol=request.symbol,
+                    execution_mode=safety.execution_mode,
+                    reason=RiskRejectionReason.KILL_SWITCH_ACTIVE,
+                    correlation_id=ev.correlation_id,
+                    workflow_id=ev.workflow_id,
+                    payload={**payload, "blocking_stage": "kill_switch_guard"},
+                ),
+            ),
+        )
+        notify_kill_switch_blocked(
+            symbol=ev.symbol or request.symbol or "unknown",
+            reason=safety.kill_switch_reason,
+            trigger="kill_switch",
+        )
+        return True
+
+    if safety.blockers:
+        logger.warning(
+            "execution_handler: live trading blocked for request_id=%s symbol=%s blockers=%s",
+            request.request_id,
+            ev.symbol,
+            safety.blockers,
+        )
+        from backend.trading.models import ExecutionOutcome, ExecutionResult, RiskRejectionReason
+
+        _record_execution_event(
+            event,
+            outcome=ExecutionOutcome.from_result(
+                request,
+                ExecutionResult.blocked(
+                    symbol=request.symbol,
+                    execution_mode=safety.execution_mode,
+                    reason=RiskRejectionReason.LIVE_TRADING_DISABLED,
+                    correlation_id=ev.correlation_id,
+                    workflow_id=ev.workflow_id,
+                    error_message=" ".join(safety.blockers),
+                    payload={**payload, "blocking_stage": "live_trading_guard", "blockers": list(safety.blockers)},
+                ),
+            ),
         )
         return True
 
     # Operator approval gate: if HERMES_REQUIRE_APPROVAL is enabled, hold the
     # request in the pending queue until an operator ACKs it via the API.
     # Requests that already carry an approval_id have passed the gate.
-    require_approval = os.getenv("HERMES_REQUIRE_APPROVAL", "false").lower() in {"true", "1", "yes"}
-    already_approved = bool(payload.get("approval_id"))
-    if require_approval and not already_approved:
+    if safety.approval_required:
         try:
             from backend.approvals import create_approval_request
 
@@ -204,14 +278,24 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
                 payload=payload,
                 correlation_id=ev.correlation_id or ev.event_id,
                 symbol=ev.symbol,
-                side=payload.get("side"),
-                amount=payload.get("amount") or payload.get("size_usd"),
+                side=request.side,
+                amount=request.amount or request.size_usd,
+                proposal_id=request.proposal_id,
+                execution_mode=safety.execution_mode,
             )
             logger.info(
                 "execution_handler: approval required — gating execution for symbol=%s "
                 "approval_id=%s",
                 ev.symbol,
                 approval_id,
+            )
+            notify_approval_required(
+                proposal_id=request.proposal_id or "",
+                symbol=ev.symbol or request.symbol or "unknown",
+                side=request.side,
+                size_usd=float(request.amount or request.size_usd or 0),
+                execution_mode=safety.execution_mode,
+                approval_id=approval_id,
             )
         except Exception as exc:
             logger.exception(
@@ -223,19 +307,24 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
 
     # Runtime trading mode is centralized so the workflow worker, API, and
     # execution adapters all agree on when live placement is actually allowed.
-    from backend.integrations.execution.mode import is_paper_mode
-
-    if is_paper_mode():
+    if safety.execution_mode != "live":
         logger.info(
             "execution_handler: PAPER MODE — simulating execution for symbol=%s side=%s amount=%s",
             ev.symbol,
-            payload.get("side"),
-            payload.get("amount"),
+            request.side,
+            request.amount,
         )
         _record_simulated_execution(event)
+        notify_paper_execution_completed(
+            symbol=ev.symbol or request.symbol or "unknown",
+            side=request.side,
+            size_usd=float(request.size_usd or request.amount or 0),
+            proposal_id=request.proposal_id,
+            correlation_id=ev.correlation_id,
+        )
         return True
 
-    return _place_live_order(event)
+    return _place_live_order(event, request=request)
 
 
 def _resolve_order_amount(payload: dict) -> float:
@@ -328,10 +417,13 @@ def _clamp_order_amount(amount: float, symbol: str) -> float:
     return amount
 
 
-def _place_live_order(event: TradingEventEnvelope) -> bool:
+def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
     """Place a real order via CCXTExecutionClient."""
     ev = event.event
-    payload = ev.payload
+    from backend.trading.models import ExecutionOutcome, ExecutionRequest, ExecutionResult, RiskRejectionReason
+
+    request = request or ExecutionRequest.model_validate(ev.payload)
+    payload = request.model_dump(mode="json")
 
     try:
         from backend.integrations.execution.ccxt_client import CCXTExecutionClient
@@ -343,25 +435,60 @@ def _place_live_order(event: TradingEventEnvelope) -> bool:
                 "execution_handler: BitMart not configured — cannot place order for symbol=%s",
                 ev.symbol,
             )
+            result = ExecutionResult.blocked(
+                symbol=request.symbol,
+                execution_mode="live",
+                reason=RiskRejectionReason.EXCHANGE_NOT_CONFIGURED,
+                correlation_id=ev.correlation_id,
+                workflow_id=ev.workflow_id,
+                payload={**payload, "failure_stage": "exchange_configuration"},
+            )
+            _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
             return True  # ack to avoid poison-pill loop
 
         order = client.place_order(
-            symbol=payload.get("symbol") or ev.symbol or "",
-            side=payload["side"],
-            order_type=payload.get("order_type", "market"),
+            symbol=request.symbol or ev.symbol or "",
+            side=request.side,
+            order_type=request.order_type,
             amount=_clamp_order_amount(
                 _resolve_order_amount(payload),
-                payload.get("symbol") or ev.symbol or "",
+                request.symbol or ev.symbol or "",
             ),
-            price=float(payload["price"]) if payload.get("price") else None,
-            client_order_id=payload.get("client_order_id"),
+            price=float(request.price) if request.price is not None else None,
+            client_order_id=request.client_order_id,
         )
         logger.info(
-            "execution_handler: live order placed order_id=%s symbol=%s",
+            "execution_handler: live order placed request_id=%s order_id=%s symbol=%s",
+            request.request_id,
             order.order_id,
             order.symbol,
         )
-        _record_execution_event(event, order_id=order.order_id, status="filled")
+        result = ExecutionResult.success_result(
+            symbol=order.symbol,
+            order_id=order.order_id,
+            execution_mode="live",
+            correlation_id=ev.correlation_id,
+            workflow_id=ev.workflow_id,
+            payload={
+                **payload,
+                "request_id": request.request_id,
+                "idempotency_key": request.idempotency_key,
+                "exchange_order": execution_order_payload(
+                    order,
+                    request_id=request.request_id,
+                    idempotency_key=request.idempotency_key,
+                ),
+            },
+        )
+        _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
+        notify_live_execution_submitted(
+            symbol=order.symbol,
+            side=request.side,
+            order_id=order.order_id or "",
+            amount=float(request.amount or request.size_usd or 0),
+            proposal_id=request.proposal_id,
+            correlation_id=ev.correlation_id,
+        )
         return True
 
     except (KeyError, TypeError, ValueError) as exc:
@@ -373,10 +500,27 @@ def _place_live_order(event: TradingEventEnvelope) -> bool:
         return True  # malformed events should be acked to unblock the stream
 
     except Exception as exc:
+        result = ExecutionResult.failed(
+            symbol=request.symbol,
+            execution_mode="live",
+            correlation_id=ev.correlation_id,
+            workflow_id=ev.workflow_id,
+            error_message=str(exc),
+            payload={**payload, "failure_stage": "exchange_submission"},
+        )
+        _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
         logger.exception(
-            "execution_handler: unexpected error placing order for symbol=%s: %s",
+            "execution_handler: unexpected error placing order request_id=%s symbol=%s: %s",
+            request.request_id,
             ev.symbol,
             exc,
+        )
+        notify_live_execution_failed(
+            symbol=ev.symbol or request.symbol or "unknown",
+            side=request.side,
+            error=str(exc),
+            proposal_id=request.proposal_id,
+            correlation_id=ev.correlation_id,
         )
         return False  # transient — leave unacked for retry
 
@@ -386,6 +530,23 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
     ev = event.event
     try:
         from backend.observability.service import get_observability_service
+        from backend.trading.models import ExecutionOutcome, ExecutionRequest, ExecutionResult
+
+        request = ExecutionRequest.model_validate(ev.payload)
+        result = ExecutionResult.success_result(
+            symbol=request.symbol,
+            order_id=None,
+            execution_mode="paper",
+            correlation_id=ev.correlation_id,
+            workflow_id=ev.workflow_id,
+            payload={
+                **request.model_dump(mode="json"),
+                "request_id": request.request_id,
+                "idempotency_key": request.idempotency_key,
+                "paper_mode": True,
+            },
+        )
+        outcome = ExecutionOutcome.from_result(request, result)
 
         get_observability_service().record_execution_event(
             event_type="order_simulated",
@@ -393,8 +554,14 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
             symbol=ev.symbol,
             correlation_id=ev.correlation_id,
             workflow_run_id=ev.workflow_id,
-            payload={**ev.payload, "paper_mode": True},
+            payload={"execution_outcome": outcome.model_dump(mode="json")},
         )
+        try:
+            from backend.trading.position_manager import apply_execution_outcome_to_portfolio
+
+            apply_execution_outcome_to_portfolio(outcome)
+        except Exception as exc:
+            logger.warning("execution_handler: failed to project paper execution into portfolio snapshot: %s", exc)
     except Exception as exc:
         logger.warning("execution_handler: failed to record simulated execution: %s", exc)
 
@@ -402,21 +569,40 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
 def _record_execution_event(
     event: TradingEventEnvelope,
     *,
-    order_id: str,
-    status: str,
+    outcome,
 ) -> None:
     ev = event.event
     try:
         from backend.observability.service import get_observability_service
 
+        result = outcome.result
+        event_type = "order_placed"
+        if result.status == "blocked":
+            event_type = "order_blocked"
+        elif result.status == "failed":
+            event_type = "order_failed"
+
         get_observability_service().record_execution_event(
-            event_type="order_placed",
-            status=status,
+            event_type=event_type,
+            status=result.status,
             symbol=ev.symbol,
             correlation_id=ev.correlation_id,
             workflow_run_id=ev.workflow_id,
-            payload={**ev.payload, "order_id": order_id},
+            summarized_input={"execution_request": outcome.request.model_dump(mode="json")},
+            summarized_output={"execution_result": result.model_dump(mode="json")},
+            metadata={
+                "execution_request_id": outcome.request.request_id,
+                "idempotency_key": outcome.request.idempotency_key,
+                "proposal_id": outcome.request.proposal_id,
+            },
         )
+        if result.success:
+            try:
+                from backend.trading.position_manager import apply_execution_outcome_to_portfolio
+
+                apply_execution_outcome_to_portfolio(outcome)
+            except Exception as exc:
+                logger.warning("execution_handler: failed to refresh portfolio after execution outcome: %s", exc)
     except Exception as exc:
         logger.warning("execution_handler: failed to record live execution event: %s", exc)
 

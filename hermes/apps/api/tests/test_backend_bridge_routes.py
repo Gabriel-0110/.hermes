@@ -179,8 +179,46 @@ def test_execution_route_returns_pending_signal_events(monkeypatch, tmp_path) ->
         payload["execution"]["pending_signal_events"][0]["event_type"]
         == "tradingview_signal_ready"
     )
+    assert payload["execution"]["safety"]["execution_mode"] == "paper"
     assert payload["execution"]["live_trading_enabled"] is False
     assert payload["execution"]["live_trading_blockers"]
+
+
+def test_execution_route_surfaces_live_approval_requirement(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.setenv("HERMES_ENABLE_LIVE_TRADING", "true")
+    monkeypatch.setenv("HERMES_LIVE_TRADING_ACK", "I_ACKNOWLEDGE_LIVE_TRADING_RISK")
+    monkeypatch.setenv("HERMES_REQUIRE_APPROVAL", "true")
+
+    _seed_tradingview_signal()
+    client = TestClient(app)
+    response = client.get("/api/v1/execution")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution"]["approval_required"] is True
+    assert payload["execution"]["live_trading_enabled"] is False
+    assert payload["execution"]["safety"]["approval_required"] is True
+
+
+def test_execution_route_surfaces_live_blockers_in_typed_safety(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.delenv("HERMES_ENABLE_LIVE_TRADING", raising=False)
+    monkeypatch.delenv("HERMES_LIVE_TRADING_ACK", raising=False)
+
+    _seed_tradingview_signal()
+    client = TestClient(app)
+    response = client.get("/api/v1/execution")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution"]["live_trading_enabled"] is False
+    assert payload["execution"]["safety"]["execution_mode"] == "live"
+    assert payload["execution"]["safety"]["blockers"]
 
 
 def test_agents_route_overlays_runtime_trading_mode(monkeypatch, tmp_path) -> None:
@@ -218,8 +256,75 @@ def test_risk_and_resources_routes_return_live_backend_data(monkeypatch, tmp_pat
     portfolio_response = client.get("/api/v1/risk/portfolio")
     assert portfolio_response.status_code == 200
     portfolio_payload = portfolio_response.json()
+
+
+def test_execution_proposal_endpoints_expose_controlled_pipeline(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("HERMES_API_DEV_BYPASS_AUTH", "true")
+
+    _seed_portfolio_snapshot()
+    client = TestClient(app)
+    proposal = {
+        "source_agent": "strategy_agent",
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "order_type": "market",
+        "requested_size_usd": 1500.0,
+        "rationale": "Breakout continuation with bounded size and monitored invalidation.",
+        "strategy_id": "breakout_v1",
+        "strategy_template_id": "momentum_breakout",
+        "timeframe": "15m",
+    }
+
+    evaluate_response = client.post("/api/v1/execution/proposals/evaluate", json=proposal)
+    assert evaluate_response.status_code == 200
+    evaluate_payload = evaluate_response.json()
+    assert evaluate_payload["status"] == "live"
+    assert evaluate_payload["policy_decision"]["proposal_id"]
+    assert evaluate_payload["policy_decision"]["execution_mode"] == "paper"
+
+    submit_response = client.post("/api/v1/execution/proposals/submit", json=proposal)
+    assert submit_response.status_code == 200
+    submit_payload = submit_response.json()
+    assert submit_payload["status"] == "live"
+    assert submit_payload["dispatch"]["status"] in {"queued", "manual_review"}
+    assert submit_payload["dispatch"]["dispatch_payload"]["symbol"] == "BTCUSDT"
+
+
+def test_position_monitor_endpoint_returns_portfolio_risk_summary(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    _seed_portfolio_snapshot()
+    client = TestClient(app)
+    response = client.get("/api/v1/execution/positions/monitor")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "live"
+    assert payload["monitor"]["portfolio"]["account_id"] == "paper"
+    assert payload["monitor"]["risk_summary"]["total_positions"] >= 1
+    assert payload["monitor"]["state_mode"] in {"live", "paper", "unknown"}
     assert portfolio_payload["portfolio"]["data"]["account_id"] == "paper"
     assert portfolio_payload["portfolio"]["data"]["positions"][0]["symbol"] == "BTC"
+
+
+def test_risk_route_surfaces_execution_safety_and_position_monitor(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    _seed_observability_history()
+    _seed_portfolio_snapshot()
+
+    client = TestClient(app)
+    response = client.get("/api/v1/risk")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["risk"]["execution_safety"]["execution_mode"] == "paper"
+    assert payload["risk"]["position_monitor"]["portfolio"]["account_id"] == "paper"
 
     resources_response = client.get("/api/v1/resources")
     assert resources_response.status_code == 200

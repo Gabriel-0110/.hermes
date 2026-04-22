@@ -1,13 +1,18 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from hermes_api.core.security import require_api_key
+from hermes_api.domain.bridge import BridgeKillSwitchState
+from hermes_api.domain.execution import BridgeExecutionSafety
+from hermes_api.domain.portfolio import BridgePortfolioResponse, BridgePositionMonitorResponse
 from hermes_api.integrations.hermes_agent import (
     HermesAgentBridgeError,
     evaluate_risk,
+    execution_safety_status,
     get_kill_switch_state,
     list_trade_candidates,
     observability_service,
     portfolio_state,
+    position_monitor_snapshot,
     set_kill_switch,
 )
 
@@ -19,11 +24,15 @@ async def get_risk() -> dict[str, object]:
     try:
         service = observability_service()
         dashboard = service.get_dashboard_snapshot(limit=20)
-        ks = get_kill_switch_state()
+        ks = BridgeKillSwitchState.model_validate(get_kill_switch_state())
+        safety = BridgeExecutionSafety.model_validate(execution_safety_status())
+        monitor = position_monitor_snapshot(refresh=False)
         return {
             "status": "live",
             "risk": {
-                "kill_switch": ks,
+                "kill_switch": ks.model_dump(mode="json"),
+                "execution_safety": safety.model_dump(mode="json"),
+                "position_monitor": monitor,
                 "recent_risk_rejections": dashboard["recent_risk_rejections"],
                 "recent_failures": dashboard["recent_failures"],
                 "recent_notifications": dashboard["recent_notifications"],
@@ -36,7 +45,8 @@ async def get_risk() -> dict[str, object]:
 @router.get("/kill-switch")
 async def get_kill_switch() -> dict[str, object]:
     try:
-        return {"status": "live", "kill_switch": get_kill_switch_state()}
+        state = BridgeKillSwitchState.model_validate(get_kill_switch_state())
+        return {"status": "live", "kill_switch": state.model_dump(mode="json")}
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -49,8 +59,10 @@ async def activate_kill_switch(
 ) -> dict[str, object]:
     """Activate the global kill switch.  All new risk approvals will be denied."""
     try:
-        state = set_kill_switch(active=True, reason=reason, operator=operator)
-        return {"status": "live", "kill_switch": state}
+        state = BridgeKillSwitchState.model_validate(
+            set_kill_switch(active=True, reason=reason, operator=operator)
+        )
+        return {"status": "live", "kill_switch": state.model_dump(mode="json")}
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -62,8 +74,8 @@ async def deactivate_kill_switch(
 ) -> dict[str, object]:
     """Deactivate the global kill switch."""
     try:
-        state = set_kill_switch(active=False, operator=operator)
-        return {"status": "live", "kill_switch": state}
+        state = BridgeKillSwitchState.model_validate(set_kill_switch(active=False, operator=operator))
+        return {"status": "live", "kill_switch": state.model_dump(mode="json")}
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -72,7 +84,16 @@ async def deactivate_kill_switch(
 async def get_risk_portfolio_view() -> dict[str, object]:
     try:
         payload = portfolio_state()
-        return {"status": "live", "portfolio": payload}
+        return BridgePortfolioResponse(status="live", portfolio=payload).model_dump(mode="json")
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/portfolio/monitor")
+async def get_risk_position_monitor() -> dict[str, object]:
+    try:
+        payload = position_monitor_snapshot(refresh=False)
+        return BridgePositionMonitorResponse(status="live", monitor=payload).model_dump(mode="json")
     except HermesAgentBridgeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

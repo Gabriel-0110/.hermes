@@ -80,14 +80,28 @@ def sync_portfolio_from_exchange(
     client = CCXTExecutionClient()
 
     if not client.configured:
-        raise MissingCredentialError(
+        err = (
             "Cannot sync portfolio: BitMart credentials (BITMART_API_KEY, "
             "BITMART_SECRET, BITMART_MEMO) are not configured."
         )
+        try:
+            from backend.trading.lifecycle_notifications import notify_portfolio_sync_failed
+            notify_portfolio_sync_failed(account_id=effective_account_id, error=err)
+        except Exception:
+            pass
+        raise MissingCredentialError(err)
 
     logger.info("portfolio_sync: fetching live balances for account_id=%s", effective_account_id)
 
-    balances: ExchangeBalances = client.get_exchange_balances()
+    try:
+        balances: ExchangeBalances = client.get_exchange_balances()
+    except Exception as exc:
+        try:
+            from backend.trading.lifecycle_notifications import notify_portfolio_sync_failed
+            notify_portfolio_sync_failed(account_id=effective_account_id, error=str(exc))
+        except Exception:
+            pass
+        raise
 
     # Separate stablecoins (cash) from non-trivial positions
     cash_usd: float = 0.0
@@ -141,6 +155,15 @@ def sync_portfolio_from_exchange(
 
     # Persist the snapshot
     _persist_snapshot(state, balances)
+    try:
+        from backend.trading.lifecycle_notifications import notify_portfolio_sync_completed
+        notify_portfolio_sync_completed(
+            account_id=state.account_id,
+            total_equity_usd=state.total_equity_usd,
+            positions_count=len(state.positions),
+        )
+    except Exception:
+        pass
     return state
 
 
@@ -157,9 +180,12 @@ def _persist_snapshot(state: PortfolioState, raw_balances: ExchangeBalances) -> 
                 exposure_usd=state.exposure_usd,
                 positions=[p.model_dump(mode="json") for p in state.positions],
                 payload={
+                    "source": "exchange_sync",
+                    "execution_mode": "live",
                     "exchange": raw_balances.exchange,
                     "account_type": raw_balances.account_type,
                     "as_of": raw_balances.as_of,
+                    "positions_count": len(state.positions),
                 },
             )
         logger.info(
