@@ -9,7 +9,7 @@ Tracked in GitHub:
 - `*/SOUL.md`
 - `*/TEAM.md`
 - `*/USER.md`
-- [`profiles/.gitignore`](./.gitignore)
+- `*/.gitignore`
 
 Not tracked:
 - local secrets such as `.env`, `auth.json`, and `auth.lock`
@@ -26,5 +26,5 @@ Current role profiles:
 
 GitHub readiness rule:
 - treat this folder as source-controlled profile definitions plus local runtime leftovers
-- if a new file is required for sharing or review, add an allowlist entry to [`profiles/.gitignore`](./.gitignore)
+- if a new file is required for sharing or review, add an allowlist entry to that profile's `.gitignore`
 - do not commit live credentials, local auth state, or profile runtime output

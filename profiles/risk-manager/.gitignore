@@ -1,0 +1,44 @@
+# Track the publishable role definition files in this profile.
+*
+!.gitignore
+!IDENTITY.md
+!ROLE_SKILLS.yaml
+!SOUL.md
+!TEAM.md
+!USER.md
+!config.yaml
+
+# Keep local secrets and runtime state out of Git.
+.env
+.env.*
+auth.json
+auth.lock
+.hermes_history
+.skills_prompt_snapshot.json
+.update_check
+channel_directory.json
+gateway.pid
+gateway_state.json
+models_dev_cache.json
+response_store.db
+response_store.db-shm
+response_store.db-wal
+state.db
+state.db-shm
+state.db-wal
+
+# Ignore generated runtime directories.
+bin/
+cache/
+cron/
+home/
+logs/
+memories/
+plans/
+platforms/
+sandboxes/
+sessions/
+skills/
+skills_backup_before_role_prune/
+skins/
+workspace/
