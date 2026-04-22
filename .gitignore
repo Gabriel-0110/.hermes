@@ -71,17 +71,6 @@ cron/.tick.lock
 cron/jobs.json
 memories/
 
-# Publish role profiles, but keep local profile state/secrets untracked.
-!profiles/
-!profiles/.gitignore
-!profiles/*/
-!profiles/*/IDENTITY.md
-!profiles/*/ROLE_SKILLS.yaml
-!profiles/*/SOUL.md
-!profiles/*/TEAM.md
-!profiles/*/USER.md
-!profiles/*/config.yaml
-
 # Gateway / app state
 channel_directory.json
 feishu_seen_message_ids.json
