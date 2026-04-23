@@ -77,7 +77,9 @@ class SlackAdapter(BasePlatformAdapter):
       - Typing indicators (not natively supported by Slack bots)
     """
 
-    MAX_MESSAGE_LENGTH = 39000  # Slack API allows 40,000 chars; leave margin
+    # Slack allows 40,000 chars, but mrkdwn/entity expansion can push a message
+    # over the limit after formatting. Keep a conservative margin.
+    MAX_MESSAGE_LENGTH = 35000
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.SLACK)
@@ -322,11 +324,24 @@ class SlackAdapter(BasePlatformAdapter):
             return SendResult(success=False, error="Not connected")
         try:
             formatted = self.format_message(content)
+            chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
+            first_chunk = chunks[0] if chunks else ""
             await self._get_client(chat_id).chat_update(
                 channel=chat_id,
                 ts=message_id,
-                text=formatted,
+                text=first_chunk,
             )
+
+            # Slack cannot "edit" one message into multiple messages. If a
+            # streamed/final update is too large, preserve the overflow as
+            # thread replies instead of failing with msg_too_long.
+            for chunk in chunks[1:]:
+                await self._get_client(chat_id).chat_postMessage(
+                    channel=chat_id,
+                    thread_ts=message_id,
+                    text=chunk,
+                    mrkdwn=True,
+                )
             return SendResult(success=True, message_id=message_id)
         except Exception as e:  # pragma: no cover - defensive logging
             logger.error(

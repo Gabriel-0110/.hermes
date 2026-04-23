@@ -77,6 +77,13 @@ agents:
   - get_onchain_wallet_data
   - get_smart_money_flows
   - get_event_risk_summary
+  - get_funding_rates
+  - get_liquidation_zones
+  - get_recent_trades
+  - get_forecast_projection
+  - save_research_memo
+  - get_research_memos
+  - list_strategies
   assigned_skills:
   - market_regime_analysis
   - watchlist_generation
@@ -116,6 +123,11 @@ agents:
   - get_market_overview
   - get_onchain_signal_summary
   - get_smart_money_flows
+  - get_order_book
+  - get_recent_trades
+  - list_strategies
+  - evaluate_strategy
+  - get_research_memos
   assigned_skills:
   - setup_scanning
   - signal_scoring
@@ -155,6 +167,13 @@ agents:
   - get_smart_money_flows
   - get_portfolio_state
   - get_crypto_prices
+  - get_risk_approval
+  - get_risk_state
+  - set_kill_switch
+  - set_risk_limits
+  - get_order_book
+  - get_funding_rates
+  - get_liquidation_zones
   - send_notification
   assigned_skills:
   - pretrade_risk_validation

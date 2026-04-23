@@ -181,7 +181,7 @@ def test_execution_route_returns_pending_signal_events(monkeypatch, tmp_path) ->
     )
     assert payload["execution"]["safety"]["execution_mode"] == "paper"
     assert payload["execution"]["live_trading_enabled"] is False
-    assert payload["execution"]["live_trading_blockers"]
+    assert payload["execution"]["live_trading_blockers"] == []
 
 
 def test_execution_route_surfaces_live_approval_requirement(monkeypatch, tmp_path) -> None:
@@ -256,6 +256,8 @@ def test_risk_and_resources_routes_return_live_backend_data(monkeypatch, tmp_pat
     portfolio_response = client.get("/api/v1/risk/portfolio")
     assert portfolio_response.status_code == 200
     portfolio_payload = portfolio_response.json()
+    assert portfolio_payload["portfolio"]["data"]["account_id"] == "paper"
+    assert portfolio_payload["portfolio"]["data"]["positions"][0]["symbol"] == "BTC"
 
 
 def test_execution_proposal_endpoints_expose_controlled_pipeline(monkeypatch, tmp_path) -> None:
@@ -263,6 +265,9 @@ def test_execution_proposal_endpoints_expose_controlled_pipeline(monkeypatch, tm
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("HERMES_API_DEV_BYPASS_AUTH", "true")
+    from hermes_api.core.config import get_settings
+
+    get_settings.cache_clear()
 
     _seed_portfolio_snapshot()
     client = TestClient(app)
@@ -307,8 +312,6 @@ def test_position_monitor_endpoint_returns_portfolio_risk_summary(monkeypatch, t
     assert payload["monitor"]["portfolio"]["account_id"] == "paper"
     assert payload["monitor"]["risk_summary"]["total_positions"] >= 1
     assert payload["monitor"]["state_mode"] in {"live", "paper", "unknown"}
-    assert portfolio_payload["portfolio"]["data"]["account_id"] == "paper"
-    assert portfolio_payload["portfolio"]["data"]["positions"][0]["symbol"] == "BTC"
 
 
 def test_risk_route_surfaces_execution_safety_and_position_monitor(monkeypatch, tmp_path) -> None:
@@ -330,14 +333,16 @@ def test_risk_route_surfaces_execution_safety_and_position_monitor(monkeypatch, 
     assert resources_response.status_code == 200
     resources_payload = resources_response.json()
     assert resources_payload["status"] == "live"
-    assert resources_payload["contract"] == "descriptive-capability-catalog"
+    assert resources_payload["contract"] == "shared-resource-audit"
     assert resources_payload["summary"]["total_resources"] == len(resources_payload["resources"])
-    assert resources_payload["summary"]["live_resource_count"] >= 1
+    assert resources_payload["summary"]["total_resources"] == 13
+    assert resources_payload["summary"]["running"] == 13
 
-    resources_by_name = {
-        item["name"]: item
+    resources_by_id = {
+        item["resource_id"]: item
         for item in resources_payload["resources"]
     }
-    assert resources_by_name["Execution / Broker / Exchange Connector"]["status"] == "live"
-    assert resources_by_name["Portfolio & Account State"]["status"] == "live"
-    assert resources_by_name["Strategy Library"]["status"] == "not_exposed"
+    assert resources_by_id["execution_exchange_connector"]["status"] == "live"
+    assert resources_by_id["portfolio_account_state"]["status"] == "live"
+    assert resources_by_id["strategy_library"]["status"] == "live"
+    assert resources_by_id["forecasting_time_series_projection_engine"]["status"] == "live"

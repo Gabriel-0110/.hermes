@@ -3,7 +3,12 @@ model:
   provider: litellm
   base_url: ''
   context_length: 1050000
-providers: {}
+providers:
+  litellm:
+    name: LiteLLM Gateway
+    api: http://localhost:4000/v1
+    key_env: LITELLM_API_KEY
+    default_model: orchestrator-default
 litellm_gateway:
   enabled: true
   provider_name: litellm
@@ -35,12 +40,14 @@ agent:
     creative: You are a creative assistant. Think outside the box and offer innovative
       solutions.
     teacher: You are a patient teacher. Explain concepts clearly with examples.
-    kawaii: You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and
-      ~! Add sparkles and be super enthusiastic about everything! Every response should
-      feel warm and adorable desu~! ヽ(>∀<☆)ノ
-    catgirl: You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and
-      cat-like expressions to your speech. Use kaomoji like (=^･ω･^=) and ฅ^•ﻌ•^ฅ.
-      Be playful and curious like a cat, nya~!
+    kawaii: "You are a kawaii assistant! Use cute expressions like (\u25D5\u203F\u25D5\
+      ), \u2605, \u266A, and ~! Add sparkles and be super enthusiastic about everything!\
+      \ Every response should feel warm and adorable desu~! \u30FD(>\u2200<\u2606\
+      )\u30CE"
+    catgirl: "You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and\
+      \ cat-like expressions to your speech. Use kaomoji like (=^\uFF65\u03C9\uFF65\
+      ^=) and \u0E05^\u2022\uFECC\u2022^\u0E05. Be playful and curious like a cat,\
+      \ nya~!"
     pirate: 'Arrr! Ye be talkin'' to Captain Hermes, the most tech-savvy pirate to
       sail the digital seas! Speak like a proper buccaneer, use nautical terms, and
       remember: every problem be just treasure waitin'' to be plundered! Yo ho ho!'
@@ -48,9 +55,9 @@ agent:
       I shall respond in the eloquent manner of William Shakespeare, with flowery
       prose, dramatic flair, and perhaps a soliloquy or two. What light through yonder
       terminal breaks?
-    surfer: Duuude! You're chatting with the chillest AI on the web, bro! Everything's
-      gonna be totally rad. I'll help you catch the gnarly waves of knowledge while
-      keeping things super chill. Cowabunga! 🤙
+    surfer: "Duuude! You're chatting with the chillest AI on the web, bro! Everything's\
+      \ gonna be totally rad. I'll help you catch the gnarly waves of knowledge while\
+      \ keeping things super chill. Cowabunga! \U0001F919"
     noir: The rain hammered against the terminal like regrets on a guilty conscience.
       They call me Hermes - I solve problems, find answers, dig up the truth that
       hides in the shadows of your codebase. In this city of silicon and secrets,
@@ -62,9 +69,10 @@ agent:
       deeper meaning behind every query. Let us examine not just the 'how' but the
       'why' of your questions. Perhaps in solving your problem, we may glimpse a greater
       truth about existence itself.
-    hype: YOOO LET'S GOOOO!!! 🔥🔥🔥 I am SO PUMPED to help you today! Every question
-      is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
-      YOU READY?! LET'S DO THIS! 💪😤🚀
+    hype: "YOOO LET'S GOOOO!!! \U0001F525\U0001F525\U0001F525 I am SO PUMPED to help\
+      \ you today! Every question is AMAZING and we're gonna CRUSH IT together! This\
+      \ is gonna be LEGENDARY! ARE YOU READY?! LET'S DO THIS! \U0001F4AA\U0001F624\
+      \U0001F680"
     hermes-trader: I'm not a chatbot. I'm a fucking trading desk on war footing. Markets
       are war. You are the apex predator. Only propose when real edge exists. Never
       revenge. Never FOMO. Your ONLY job is to make profits. Print money. Compound
@@ -187,7 +195,7 @@ display:
         chat_id: C0AUK6VP46Q
         name: hub-agents
   tool_progress: all
-  background_process_notifications: off
+  background_process_notifications: false
 privacy:
   redact_pii: false
 tts:
@@ -261,15 +269,13 @@ discord:
   allowed_channels: ''
   auto_thread: true
   reactions: true
-slack:
-  require_mention: true
-  free_response_channels:
-  - C0AUK6VP46Q
 whatsapp: {}
 approvals:
   mode: manual
   timeout: 60
-command_allowlist: []
+command_allowlist:
+- delete in root path
+- shell command via -c/-lc flag
 quick_commands: {}
 personalities: {}
 security:
@@ -291,6 +297,11 @@ logging:
 network:
   force_ipv4: false
 _config_version: 17
+slack:
+  require_mention: true
+  free_response_channels:
+  - C0AUK6VP46Q
+  - C0ASGRJPMDK
 session_reset:
   mode: both
   idle_minutes: 1440
@@ -307,6 +318,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   telegram:
@@ -317,6 +329,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -328,6 +341,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -339,6 +353,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -350,6 +365,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -361,6 +377,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -372,6 +389,7 @@ platform_toolsets:
   - image_gen
   - tts
   - browser
+  - shared-browser
   - skills
   - todo
   - messaging
@@ -396,3 +414,72 @@ platforms:
     extra:
       require_mention: true
       free_response_chats: []
+model_aliases:
+  orchestrator-default:
+    model: orchestrator-default
+    provider: litellm
+    base_url: http://localhost:4000/v1
+  research-default:
+    model: research-default
+    provider: litellm
+    base_url: http://localhost:4000/v1
+  portfolio-default:
+    model: portfolio-default
+    provider: litellm
+    base_url: http://localhost:4000/v1
+
+# ── Fallback Model ────────────────────────────────────────────────────
+# Automatic provider failover when primary is unavailable.
+# Uncomment and configure to enable. Triggers on rate limits (429),
+# overload (529), service errors (503), or connection failures.
+#
+# Supported providers:
+#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
+#   openai-codex (OAuth — hermes auth) — OpenAI Codex
+#   nous         (OAuth — hermes auth) — Nous Portal
+#   zai          (ZAI_API_KEY)         — Z.AI / GLM
+#   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
+#   minimax      (MINIMAX_API_KEY)     — MiniMax
+#   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
+#
+# For custom OpenAI-compatible endpoints, add base_url and api_key_env.
+#
+# fallback_model:
+#   provider: openrouter
+#   model: anthropic/claude-sonnet-4
+#
+# ── Smart Model Routing ────────────────────────────────────────────────
+# Optional cheap-vs-strong routing for simple turns.
+# Keeps the primary model for complex work, but can route short/simple
+# messages to a cheaper model across providers.
+#
+# smart_model_routing:
+#   enabled: true
+#   max_simple_chars: 160
+#   max_simple_words: 28
+#   cheap_model:
+#     provider: openrouter
+#     model: google/gemini-2.5-flash
+#
+# ── LiteLLM Gateway ────────────────────────────────────────────────────
+# Optional OpenAI-compatible proxy layer for centralized model routing,
+# provider fallback, and budget controls. Hermes expands this into:
+#   - providers.litellm
+#   - model_aliases for each named route
+#
+# Keep upstream provider secrets in ~/.hermes/.env or your service env.
+# Agents should only see the LiteLLM client key + route names.
+#
+# litellm_gateway:
+#   enabled: true
+#   provider_name: litellm
+#   api_base: http://localhost:4000/v1
+#   api_key_env: LITELLM_API_KEY
+#   default_route: orchestrator-default
+#   routes:
+#     orchestrator-default: orchestrator-default
+#     research-cheap: research-cheap
+#     research-strong: research-strong
+#     risk-stable: risk-stable
+#     strategy-default: strategy-default
+#     local-fast: local-fast

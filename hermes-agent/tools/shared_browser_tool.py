@@ -114,7 +114,7 @@ def _check_shared_browser_requirements() -> bool:
 
 registry.register(
     name="shared_browser",
-    toolset="browser",
+    toolset="shared-browser",
     schema=SHARED_BROWSER_SCHEMA,
     handler=lambda args, **kw: shared_browser_action(**args),
     check_fn=_check_shared_browser_requirements,

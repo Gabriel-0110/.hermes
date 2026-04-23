@@ -12,6 +12,13 @@ allowed_tools:
 - get_onchain_wallet_data
 - get_smart_money_flows
 - get_event_risk_summary
+- get_funding_rates
+- get_liquidation_zones
+- get_recent_trades
+- get_forecast_projection
+- save_research_memo
+- get_research_memos
+- list_strategies
 assigned_skills:
 - market_regime_analysis
 - watchlist_generation

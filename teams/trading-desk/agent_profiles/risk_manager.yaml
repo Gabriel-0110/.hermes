@@ -13,6 +13,13 @@ allowed_tools:
   - get_smart_money_flows
   - get_portfolio_state
   - get_crypto_prices
+  - get_risk_approval
+  - get_risk_state
+  - set_kill_switch
+  - set_risk_limits
+  - get_order_book
+  - get_funding_rates
+  - get_liquidation_zones
   - send_notification
 forbidden_actions:
   - no bypass of workflow
@@ -52,4 +59,3 @@ platforms:
       - wrk-review
   telegram:
     require_mention: true
-

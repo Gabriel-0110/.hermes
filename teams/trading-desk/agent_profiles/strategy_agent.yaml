@@ -10,6 +10,11 @@ allowed_tools:
   - get_market_overview
   - get_onchain_signal_summary
   - get_smart_money_flows
+  - get_order_book
+  - get_recent_trades
+  - list_strategies
+  - evaluate_strategy
+  - get_research_memos
 forbidden_actions:
   - no direct execution
   - no raw news firehose dependency unless wrapped
@@ -27,6 +32,7 @@ skills:
 expected_inputs:
   - market context
   - candidate symbols
+  - research-owned forecast scenario packages
 expected_outputs:
   - structured trade candidate
   - confidence score

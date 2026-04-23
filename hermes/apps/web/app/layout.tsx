@@ -8,6 +8,21 @@ export const metadata: Metadata = {
   description: "Mission Control starter interface for Hermes Cryptocurrency AI Trader.",
 };
 
+const navItems = [
+  { href: "/", label: "Dashboard", code: "00" },
+  { href: "/mission-control", label: "Mission Control", code: "01" },
+  { href: "/observability", label: "Observability", code: "02" },
+  { href: "/alerts", label: "Alerts", code: "03" },
+  { href: "/agents", label: "Agents", code: "04" },
+];
+
+const hudItems = [
+  { label: "Scope", value: "Mission Ops" },
+  { label: "Surface", value: "Operator oversight" },
+  { label: "Data", value: "Live API" },
+  { label: "Window", value: "UTC" },
+];
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -15,22 +30,45 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
+      <body className="app-body">
         <div className="app-shell">
-          <header className="topbar">
-            <div className="brand">
-              <span className="brand-mark">Hermes</span>
-              <span className="brand-title">Cryptocurrency AI Trader</span>
+          <header className="topbar mission-topbar">
+            <div className="brand brand-ops">
+              <div className="brand-sigil" aria-hidden="true">
+                <span className="brand-sigil-core" />
+              </div>
+              <div className="brand-copy">
+                <span className="brand-mark">Hermes · Mission Ops</span>
+                <span className="brand-title">Command surface for trading oversight</span>
+              </div>
             </div>
-            <nav className="nav" aria-label="Primary">
-              <Link href="/">Dashboard</Link>
-              <Link href="/mission-control">Mission Control</Link>
-              <Link href="/observability">Observability</Link>
-              <Link href="/alerts">Alerts</Link>
-              <Link href="/agents">Agents</Link>
-            </nav>
+
+            <div className="topbar-matrix" aria-label="Mission HUD">
+              {hudItems.map((item) => (
+                <div key={item.label} className="topbar-cell">
+                  <span className="topbar-cell-label">{item.label}</span>
+                  <span className="topbar-cell-value">{item.value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="topbar-actions">
+              <nav className="nav" aria-label="Primary">
+                {navItems.map((item) => (
+                  <Link key={item.href} href={item.href} className="nav-link">
+                    <span className="nav-link-code">/{item.code}</span>
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+              </nav>
+
+              <Link href="/mission-control" className="mission-cta">
+                ◈ Mission Deck
+              </Link>
+            </div>
           </header>
-          <main>{children}</main>
+
+          <main className="app-main">{children}</main>
         </div>
       </body>
     </html>

@@ -11,9 +11,10 @@ type KillSwitchState = {
 
 type Props = {
   initialState: KillSwitchState;
+  variant?: "default" | "mission";
 };
 
-export function KillSwitchPanel({ initialState }: Props) {
+export function KillSwitchPanel({ initialState, variant = "default" }: Props) {
   const [state, setState] = useState<KillSwitchState>(initialState);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +40,40 @@ export function KillSwitchPanel({ initialState }: Props) {
     } else {
       setError(result.error);
     }
+  }
+
+  if (variant === "mission") {
+    return (
+      <div className="mission-control-panel">
+        <p className={`mission-control-status ${state.active ? "tone-loss" : "tone-gain"}`}>
+          {state.active ? "ACTIVE — approvals blocked" : "INACTIVE — normal operation"}
+        </p>
+        {state.reason ? <p className="muted mission-control-copy">{state.reason}</p> : null}
+        {state.updated_at ? (
+          <p className="muted mission-control-copy">
+            Last changed: {" "}
+            {new Intl.DateTimeFormat("en-US", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date(state.updated_at))}
+          </p>
+        ) : null}
+        {error ? <p className="mission-control-error">{error}</p> : null}
+        <div className="mission-inline-actions">
+          <button
+            onClick={toggle}
+            disabled={pending}
+            className={`mission-action-button ${state.active ? "tone-gain" : "tone-loss"}`}
+          >
+            {pending
+              ? "Working…"
+              : state.active
+                ? "Deactivate kill switch"
+                : "Activate kill switch"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -12,4 +12,5 @@ def shared_resource_catalog() -> list[str]:
         "onchain_ecosystem_intelligence",
         "execution_exchange_connector",
         "memory_knowledge_research_store",
+        "forecasting_time_series_projection_engine",
     ]

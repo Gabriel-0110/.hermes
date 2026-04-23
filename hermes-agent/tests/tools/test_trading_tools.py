@@ -28,6 +28,7 @@ def test_trading_research_toolset_includes_macro_series_tools():
     assert "get_macro_series" in names
     assert "get_macro_observations" in names
     assert "get_macro_regime_summary" in names
+    assert "get_forecast_projection" in names
     assert "get_event_risk_macro_context" not in names
 
 
@@ -45,6 +46,7 @@ def test_trading_risk_and_strategy_toolsets_expose_only_synthesized_macro_access
     assert "get_macro_regime_summary" in strategy_names
     assert "get_event_risk_macro_context" not in strategy_names
     assert "get_macro_series" not in strategy_names
+    assert "get_forecast_projection" not in strategy_names
 
 
 def test_get_crypto_prices_fails_safely_without_credentials(monkeypatch):
@@ -90,6 +92,55 @@ def test_execution_tools_only_exposed_to_expected_toolsets():
     assert "get_exchange_balances" not in research_names
     assert "send_daily_summary" in research_names
     assert "send_notification" not in strategy_names
+
+
+def test_shared_resource_catalog_reports_all_core_resources_live():
+    from backend.shared_resources import get_shared_resource_audit, initialize_shared_resource_catalog
+
+    initialize_shared_resource_catalog()
+    audit = get_shared_resource_audit()
+    resources = {item["resource_id"]: item for item in audit["resources"]}
+
+    assert audit["summary"]["total_resources"] == 13
+    assert audit["summary"]["running"] == 13
+    assert resources["forecasting_time_series_projection_engine"]["applied_to_agents"] is True
+    assert "get_forecast_projection" in resources["forecasting_time_series_projection_engine"]["registered_tools"]
+
+
+def test_forecast_projection_fails_safely_without_history(monkeypatch):
+    from backend.tools import get_forecast_projection as module
+
+    monkeypatch.setattr(
+        module,
+        "get_ohlcv",
+        lambda _: {
+            "meta": {"ok": True, "providers": []},
+            "data": [{"close": 100.0 + idx} for idx in range(10)],
+        },
+    )
+
+    payload = module.get_forecast_projection({"symbol": "BTC/USD", "horizon": 3, "history_limit": 20})
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "insufficient_history"
+
+
+def test_forecast_projection_returns_research_package(monkeypatch):
+    from backend.tools import get_forecast_projection as module
+
+    monkeypatch.setattr(
+        module,
+        "get_ohlcv",
+        lambda _: {
+            "meta": {"ok": True, "providers": []},
+            "data": [{"close": 100.0 + idx} for idx in range(30)],
+        },
+    )
+
+    payload = module.get_forecast_projection({"symbol": "BTC/USD", "horizon": 3, "history_limit": 30})
+    assert payload["meta"]["ok"] is True
+    assert payload["data"]["forecast_is_trade_signal"] is False
+    assert payload["data"]["horizon"] == 3
+    assert len(payload["data"]["scenarios"]) == 3
 
 
 def test_orchestrator_toolset_covers_assigned_skill_requirements():

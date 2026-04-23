@@ -22,6 +22,7 @@ Hermes architecture currently assumes shared support for:
 - on-chain intelligence
 - execution connectors
 - memory and research storage
+- forecasting and time-series projection
 
 ## Why It Matters
 
@@ -29,6 +30,14 @@ Hermes architecture currently assumes shared support for:
 - makes testing and replay easier
 - keeps policy and schema boundaries explicit
 - gives Mission Control more reliable metadata to inspect
+
+## Runtime Audit
+
+`GET /api/v1/resources` exposes the canonical 13-resource audit. Each resource
+reports whether it is implemented, installed in the tool registry, covered by
+tests, initialized/running, and applied to the owning agents. The dashboard
+startup path initializes the same shared-resource catalog service alongside the
+shared database and Redis event bus bootstraps.
 
 ## Local vs Cloud Model Routing
 

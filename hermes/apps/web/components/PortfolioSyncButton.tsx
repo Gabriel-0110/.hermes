@@ -9,7 +9,7 @@ type SyncState = {
   error: string | null;
 };
 
-export function PortfolioSyncButton() {
+export function PortfolioSyncButton({ variant = "default" }: { variant?: "default" | "mission" }) {
   const [state, setState] = useState<SyncState>({
     syncing: false,
     lastResult: null,
@@ -33,6 +33,21 @@ export function PortfolioSyncButton() {
     }
   }
 
+  if (variant === "mission") {
+    return (
+      <div className="mission-inline-actions mission-inline-actions-stack">
+        <button
+          onClick={sync}
+          disabled={state.syncing}
+          className="mission-action-button tone-accent"
+        >
+          {state.syncing ? "Syncing…" : "Sync live balances"}
+        </button>
+        {state.lastResult ? <p className="mission-control-success">{state.lastResult}</p> : null}
+        {state.error ? <p className="mission-control-error">{state.error}</p> : null}
+      </div>
+    );
+  }
   return (
     <div style={{ marginTop: "0.5rem" }}>
       <button

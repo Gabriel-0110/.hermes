@@ -2,7 +2,7 @@ skill_id: chronos2_forecasting
 name: Chronos-2 Forecasting
 purpose: Produce forward-looking market scenario forecasts from normalized historical time-series inputs using Amazon Chronos-2.
 agents_allowed: [market_researcher]
-tools_required: [get_ohlcv, get_market_overview]
+tools_required: [get_ohlcv, get_market_overview, get_forecast_projection]
 inputs: [historical_series, prediction_horizon, frequency, symbols]
 outputs: [forecast_scenario_package, low_forecast, median_forecast, high_forecast]
 dependencies: [market_regime_analysis, cross_asset_context]

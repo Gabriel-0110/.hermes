@@ -58,6 +58,8 @@ class BridgeExecutionRequest(BaseModel):
     timeframe: str | None = None
     stop_loss_price: float | None = None
     take_profit_price: float | None = None
+    reduce_only: bool = False
+    position_side: str | None = None
     stop_guidance: str | None = None
     source_agent: str | None = None
     policy_trace: list[str] = Field(default_factory=list)

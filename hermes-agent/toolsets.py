@@ -44,6 +44,7 @@ _HERMES_CORE_TOOLS = [
     "browser_type", "browser_scroll", "browser_back",
     "browser_press", "browser_get_images",
     "browser_vision", "browser_console",
+    "shared_browser",
     # Text-to-speech
     "text_to_speech",
     # Planning & memory
@@ -117,6 +118,12 @@ TOOLSETS = {
             "browser_press", "browser_get_images",
             "browser_vision", "browser_console", "web_search"
         ],
+        "includes": []
+    },
+
+    "shared-browser": {
+        "description": "Persistent headed browser sessions with human handoff/resume for auth-sensitive exchange workflows",
+        "tools": ["shared_browser"],
         "includes": []
     },
     
@@ -219,6 +226,8 @@ TOOLSETS = {
             "get_recent_tradingview_alerts", "get_tradingview_alert_by_symbol",
             "get_pending_signal_events", "get_tradingview_alert_context",
             "get_order_book", "get_funding_rates", "get_liquidation_zones",
+            "get_recent_trades", "get_execution_quality", "get_forecast_projection",
+            "list_strategies", "evaluate_strategy", "save_research_memo", "get_research_memos",
             "get_risk_state", "set_kill_switch", "set_risk_limits",
         ],
         "includes": []
@@ -243,8 +252,10 @@ TOOLSETS = {
             "get_macro_regime_summary", "get_defi_protocols", "get_defi_protocol_details",
             "get_defi_chain_overview", "get_defi_yields", "get_defi_dex_overview",
             "get_defi_fees_overview", "get_defi_regime_summary", "get_social_sentiment", "get_onchain_wallet_data",
-            "get_smart_money_flows", "get_event_risk_summary", "send_daily_summary",
-            "get_tradingview_alert_context",
+            "get_smart_money_flows", "get_event_risk_summary", "get_funding_rates",
+            "get_liquidation_zones", "get_recent_trades", "get_forecast_projection",
+            "save_research_memo", "get_research_memos", "send_daily_summary",
+            "get_tradingview_alert_context", "list_strategies",
         ],
         "includes": []
     },
@@ -268,6 +279,8 @@ TOOLSETS = {
             "get_defi_open_interest", "get_defi_regime_summary",
             "get_social_sentiment", "get_onchain_wallet_data",
             "get_smart_money_flows", "get_portfolio_state", "get_exchange_balances", "get_open_orders", "get_execution_status", "get_crypto_prices",
+            "get_risk_approval", "get_risk_state", "set_kill_switch", "set_risk_limits",
+            "get_order_book", "get_funding_rates", "get_liquidation_zones",
             "send_notification", "send_risk_alert",
             "get_recent_tradingview_alerts", "get_tradingview_alert_by_symbol",
             "get_tradingview_alert_context",
@@ -281,6 +294,8 @@ TOOLSETS = {
             "get_crypto_prices", "get_ohlcv", "get_indicator_snapshot",
             "get_market_overview", "get_macro_regime_summary", "get_defi_regime_summary",
             "get_defi_protocol_details", "get_onchain_signal_summary", "get_smart_money_flows",
+            "get_order_book", "get_recent_trades", "list_strategies", "evaluate_strategy",
+            "get_research_memos",
             "get_recent_tradingview_alerts", "get_pending_signal_events",
             "get_tradingview_alert_context",
         ],

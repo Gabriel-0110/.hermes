@@ -59,10 +59,13 @@ from backend.tools.get_funding_rates import get_funding_rates
 from backend.tools.get_liquidation_zones import get_liquidation_zones
 from backend.tools.get_recent_trades import get_recent_trades
 from backend.tools.get_execution_quality import get_execution_quality
+from backend.tools.get_forecast_projection import get_forecast_projection
 from backend.tools.list_strategies import list_strategies
 from backend.tools.evaluate_strategy import evaluate_strategy
 from backend.tools.save_research_memo import save_research_memo
 from backend.tools.get_research_memos import get_research_memos
+from backend.tools.get_risk_state import get_risk_state
+from backend.tools.set_kill_switch import set_kill_switch, set_risk_limits
 from tools.registry import registry
 
 
@@ -601,6 +604,50 @@ _TRADING_TOOLS = {
             "required": ["symbol"],
         },
         "handler": get_execution_quality,
+    },
+    "get_risk_state": {
+        "description": "Read the shared risk-control state including kill switch, limits, and drawdown telemetry.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+        "handler": get_risk_state,
+    },
+    "set_kill_switch": {
+        "description": "Activate or clear the shared trading kill switch in the risk policy engine.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "active": {"type": "boolean"},
+                "reason": {"type": "string"},
+            },
+            "required": ["active"],
+        },
+        "handler": set_kill_switch,
+    },
+    "set_risk_limits": {
+        "description": "Persist shared risk limits for max position, daily loss, and drawdown cap.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "max_position_usd": {"type": "number", "minimum": 0},
+                "max_daily_loss_usd": {"type": "number", "minimum": 0},
+                "drawdown_limit_pct": {"type": "number", "minimum": 0},
+            },
+            "required": [],
+        },
+        "handler": set_risk_limits,
+    },
+    "get_forecast_projection": {
+        "description": "Produce a research-owned low/median/high forward projection package from normalized historical OHLCV data.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "interval": {"type": "string"},
+                "history_limit": {"type": "integer", "minimum": 20, "maximum": 500},
+                "horizon": {"type": "integer", "minimum": 1, "maximum": 60},
+            },
+            "required": ["symbol"],
+        },
+        "handler": get_forecast_projection,
     },
     "list_strategies": {
         "description": "List all named trading strategies in the strategy registry with their descriptions, target timeframes, and current versions.",

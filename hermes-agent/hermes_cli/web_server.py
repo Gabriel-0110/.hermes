@@ -27,6 +27,7 @@ from hermes_cli import __version__, __release_date__
 from backend.db import bootstrap_shared_storage_on_startup
 from backend.event_bus import bootstrap_event_bus_on_startup
 from backend.observability.service import get_observability_service
+from backend.shared_resources import initialize_shared_resource_catalog
 from hermes_cli.config import (
     DEFAULT_CONFIG,
     OPTIONAL_ENV_VARS,
@@ -67,6 +68,7 @@ def bootstrap_shared_backends_on_startup() -> None:
     """Initialize shared DB and Redis backends for dashboard/API runtimes."""
     bootstrap_shared_storage_on_startup()
     bootstrap_event_bus_on_startup()
+    initialize_shared_resource_catalog()
 
 
 @app.on_event("startup")

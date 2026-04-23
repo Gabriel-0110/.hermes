@@ -157,6 +157,11 @@ def trading_desk_agent(agent_id: str) -> dict[str, Any] | None:
     return None
 
 
+def shared_resource_audit() -> dict[str, Any]:
+    module = import_from_hermes_agent("backend.shared_resources")
+    return module.initialize_shared_resource_catalog()
+
+
 def agent_activity(agent_id: str, *, decision_limit: int = 10) -> dict[str, Any]:
     service = observability_service()
     recent_decisions = service.get_agent_decision_history(

@@ -15,9 +15,10 @@ export type PendingApproval = {
 
 type Props = {
   initialApprovals: PendingApproval[];
+  variant?: "default" | "mission";
 };
 
-export function ApprovalQueuePanel({ initialApprovals }: Props) {
+export function ApprovalQueuePanel({ initialApprovals, variant = "default" }: Props) {
   const [approvals, setApprovals] = useState<PendingApproval[]>(initialApprovals);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -43,6 +44,59 @@ export function ApprovalQueuePanel({ initialApprovals }: Props) {
     } else {
       setErrors((e) => ({ ...e, [approvalId]: result.error ?? "Unknown error" }));
     }
+  }
+
+  if (variant === "mission") {
+    if (approvals.length === 0) {
+      return <p className="muted">No execution requests awaiting approval.</p>;
+    }
+
+    return (
+      <ul className="list mission-approval-list">
+        {approvals.map((approval) => {
+          const tone = approval.side?.toLowerCase() === "sell" ? "warn" : "accent";
+
+          return (
+            <li key={approval.approval_id} className={`mission-list-item tone-${tone}`}>
+              <div className="resource-row">
+                <strong>{approval.symbol ?? "Unknown"}</strong>
+                <span className="muted">
+                  {approval.side ? approval.side.toUpperCase() : "REVIEW"}
+                  {approval.amount ? ` · ${approval.amount}` : ""}
+                </span>
+              </div>
+              <div className="muted mission-approval-meta">
+                ID {approval.approval_id.slice(0, 8)}…
+                {approval.created_at
+                  ? ` · ${new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "short" }).format(new Date(approval.created_at))}`
+                  : ""}
+              </div>
+              {errors[approval.approval_id] ? (
+                <p className="mission-control-error">{errors[approval.approval_id]}</p>
+              ) : null}
+              <div className="mission-inline-actions">
+                <button
+                  onClick={() => handleAction(approval.approval_id, "approve")}
+                  disabled={pending[approval.approval_id]}
+                  className="mission-action-button tone-gain"
+                >
+                  {pending[approval.approval_id] ? "Working…" : "Approve"}
+                </button>
+                <button
+                  onClick={() =>
+                    handleAction(approval.approval_id, "reject", "Operator rejected via Mission Control")
+                  }
+                  disabled={pending[approval.approval_id]}
+                  className="mission-action-button tone-loss"
+                >
+                  {pending[approval.approval_id] ? "Working…" : "Reject"}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
 
   if (approvals.length === 0) {
