@@ -2,11 +2,11 @@
 
 ## orchestrator_trader
 
-- Role: central coordinator and workflow router.
-- Allowed tools: `list_trade_candidates`, `get_risk_approval`, `get_portfolio_state`, `place_order`, `cancel_order`, `send_trade_alert`, `send_execution_update`, `get_execution_status`, `get_recent_tradingview_alerts`, `get_pending_signal_events`, `get_tradingview_alert_context`.
-- Forbidden actions: raw provider access, raw secret access, direct provider HTTP calls.
-- Skills: `workflow_routing`, `decision_aggregation`, `execution_requesting`, `incident_escalation`.
-- Expected outputs: approved action plan, trade execution request, workflow summary, alert decisions.
+- Role: central coordinator for market and result decisions.
+- Allowed tools: `list_trade_candidates`, `get_risk_approval`, `get_portfolio_state`, `get_execution_status`, `get_recent_tradingview_alerts`, `get_pending_signal_events`, `get_tradingview_alert_context`.
+- Forbidden actions: raw provider access, raw secret access, direct provider HTTP calls, direct operator notification delivery, and direct audit-log ownership.
+- Skills: `workflow_routing`, `decision_aggregation`, `execution_requesting`.
+- Expected outputs: approved action plan, execution request, workflow summary, market/result summary.
 
 ## market_researcher
 
@@ -28,10 +28,10 @@
 ## risk_manager
 
 - Role: hard gatekeeper for risk controls.
-- Allowed tools: `get_ohlcv`, `get_volatility_metrics`, `get_correlation_inputs`, `get_event_risk_summary`, `get_macro_regime_summary`, `get_event_risk_macro_context`, `get_defi_chain_overview`, `get_defi_yields`, `get_defi_fees_overview`, `get_defi_open_interest`, `get_defi_regime_summary`, `get_social_sentiment`, `get_onchain_wallet_data`, `get_smart_money_flows`, `get_portfolio_state`, `get_exchange_balances`, `get_open_orders`, `get_execution_status`, `get_crypto_prices`, `send_risk_alert`, `get_recent_tradingview_alerts`, `get_tradingview_alert_by_symbol`, `get_tradingview_alert_context`.
+- Allowed tools: `get_ohlcv`, `get_volatility_metrics`, `get_correlation_inputs`, `get_event_risk_summary`, `get_macro_regime_summary`, `get_event_risk_macro_context`, `get_defi_chain_overview`, `get_defi_yields`, `get_defi_fees_overview`, `get_defi_open_interest`, `get_defi_regime_summary`, `get_social_sentiment`, `get_onchain_wallet_data`, `get_smart_money_flows`, `get_portfolio_state`, `get_exchange_balances`, `get_open_orders`, `get_execution_status`, `get_crypto_prices`, `send_notification`, `send_risk_alert`, `get_recent_tradingview_alerts`, `get_tradingview_alert_by_symbol`, `get_tradingview_alert_context`.
 - Forbidden actions: workflow bypass, raw direct execution.
-- Skills: `pretrade_risk_validation`, `position_sizing`, `drawdown_protection`, `concentration_analysis`, `volatility_risk_control`, `event_risk_control`.
-- Expected outputs: risk approval or rejection, max size recommendation, stop/invalidation guidance, risk flags.
+- Skills: `pretrade_risk_validation`, `position_sizing`, `drawdown_protection`, `concentration_analysis`, `volatility_risk_control`, `event_risk_control`, `incident_escalation`.
+- Expected outputs: risk approval or rejection, max size recommendation, stop/invalidation guidance, risk flags, incident alert.
 
 ## strategy_agent
 

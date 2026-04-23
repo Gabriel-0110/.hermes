@@ -948,6 +948,25 @@ async def get_observability_execution_events(
     )
 
 
+@app.get("/api/observability/movements")
+async def get_observability_movements(
+    limit: int = 50,
+    correlation_id: str | None = None,
+    workflow_run_id: str | None = None,
+    symbol: str | None = None,
+    account_id: str | None = None,
+    movement_type: str | None = None,
+):
+    return get_observability_service().get_movement_history(
+        limit=min(limit, 200),
+        correlation_id=correlation_id,
+        workflow_run_id=workflow_run_id,
+        symbol=symbol,
+        account_id=account_id,
+        movement_type=movement_type,
+    )
+
+
 @app.get("/api/observability/system-errors")
 async def get_observability_system_errors(
     limit: int = 50,

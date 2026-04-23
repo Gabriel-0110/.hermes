@@ -112,7 +112,7 @@ smart_model_routing:
   max_simple_words: 28
   cheap_model:
     provider: openai
-    model: orchestrator-default
+    model: portfolio-default
     base_url: http://localhost:4000/v1
     api_key_env: LITELLM_API_KEY
 auxiliary:
@@ -187,7 +187,7 @@ display:
         chat_id: C0AUK6VP46Q
         name: hub-agents
   tool_progress: all
-  background_process_notifications: all
+  background_process_notifications: off
 privacy:
   redact_pii: false
 tts:
@@ -239,8 +239,8 @@ memory:
   nudge_interval: 10
   flush_min_turns: 6
 delegation:
-  model: ''
-  provider: ''
+  model: portfolio-default
+  provider: litellm
   base_url: ''
   api_key: ''
   max_iterations: 50
@@ -256,20 +256,15 @@ skills:
 honcho: {}
 timezone: EST
 discord:
-  require_mention: false
-  free_response_channels: ''
+  require_mention: true
+  free_response_channels: []
   allowed_channels: ''
   auto_thread: true
   reactions: true
 slack:
-  require_mention: false
+  require_mention: true
   free_response_channels:
-  - C0ASGRJPMDK
   - C0AUK6VP46Q
-  - C0AU97UBCLT
-  - C0AUC7CGUAH
-  - C0AU980UBEF
-  - C0AUC9ZT069
 whatsapp: {}
 approvals:
   mode: manual
@@ -305,19 +300,81 @@ streaming:
   enabled: false
 platform_toolsets:
   cli:
-  - hermes-cli
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
   telegram:
-  - hermes-telegram
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
   discord:
-  - hermes-discord
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
   whatsapp:
-  - hermes-whatsapp
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
   slack:
-  - hermes-slack
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
   signal:
-  - hermes-signal
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
   homeassistant:
-  - hermes-homeassistant
+  - terminal
+  - file
+  - web
+  - vision
+  - image_gen
+  - tts
+  - browser
+  - skills
+  - todo
+  - messaging
 code_execution:
   timeout: 300
   max_tool_calls: 50
@@ -337,6 +394,5 @@ custom_providers:
 platforms:
   telegram:
     extra:
-      require_mention: false
-      free_response_chats:
-      - '-1003986582232'
+      require_mention: true
+      free_response_chats: []

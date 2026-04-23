@@ -71,6 +71,16 @@ def _require_tty(command_name: str) -> None:
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 
+
+def _find_git_root(path: Path) -> Optional[Path]:
+    """Return the nearest ancestor containing git metadata."""
+    current = path.resolve()
+    for candidate in (current, *current.parents):
+        git_path = candidate / ".git"
+        if git_path.exists():
+            return candidate
+    return None
+
 # ---------------------------------------------------------------------------
 # Profile override — MUST happen before any hermes module import.
 #
@@ -3654,9 +3664,10 @@ def cmd_update(args):
     # Try git-based update first, fall back to ZIP download on Windows
     # when git file I/O is broken (antivirus, NTFS filter drivers, etc.)
     use_zip_update = False
-    git_dir = PROJECT_ROOT / '.git'
+    git_root = _find_git_root(PROJECT_ROOT)
+    git_dir = git_root / '.git' if git_root is not None else PROJECT_ROOT / '.git'
     
-    if not git_dir.exists():
+    if git_root is None:
         if sys.platform == "win32":
             use_zip_update = True
         else:
@@ -3669,7 +3680,7 @@ def cmd_update(args):
     if sys.platform == "win32" and git_dir.exists():
         subprocess.run(
             ["git", "-c", "windows.appendAtomically=false", "config", "windows.appendAtomically", "false"],
-            cwd=PROJECT_ROOT, check=False, capture_output=True
+            cwd=git_root or PROJECT_ROOT, check=False, capture_output=True
         )
 
     # Build git command once — reused for fork detection and the update itself.
@@ -3678,7 +3689,8 @@ def cmd_update(args):
         git_cmd = ["git", "-c", "windows.appendAtomically=false"]
 
     # Detect if we're updating from a fork (before any branch logic)
-    origin_url = _get_origin_url(git_cmd, PROJECT_ROOT)
+    git_cwd = git_root or PROJECT_ROOT
+    origin_url = _get_origin_url(git_cmd, git_cwd)
     is_fork = _is_fork(origin_url)
 
     if is_fork:
@@ -3697,7 +3709,7 @@ def cmd_update(args):
         print("→ Fetching updates...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch", "origin"],
-            cwd=PROJECT_ROOT,
+            cwd=git_cwd,
             capture_output=True,
             text=True,
         )
@@ -3717,7 +3729,7 @@ def cmd_update(args):
         # Get current branch (returns literal "HEAD" when detached)
         result = subprocess.run(
             git_cmd + ["rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=PROJECT_ROOT,
+            cwd=git_cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -3732,16 +3744,16 @@ def cmd_update(args):
             label = "detached HEAD" if current_branch == "HEAD" else f"branch '{current_branch}'"
             print(f"  ⚠ Currently on {label} — switching to main for update...")
             # Stash before checkout so uncommitted work isn't lost
-            auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
+            auto_stash_ref = _stash_local_changes_if_needed(git_cmd, git_cwd)
             subprocess.run(
                 git_cmd + ["checkout", "main"],
-                cwd=PROJECT_ROOT,
+                cwd=git_cwd,
                 capture_output=True,
                 text=True,
                 check=True,
             )
         else:
-            auto_stash_ref = _stash_local_changes_if_needed(git_cmd, PROJECT_ROOT)
+            auto_stash_ref = _stash_local_changes_if_needed(git_cmd, git_cwd)
 
         prompt_for_restore = auto_stash_ref is not None and (
             gateway_mode or (sys.stdin.isatty() and sys.stdout.isatty())
@@ -3750,7 +3762,7 @@ def cmd_update(args):
         # Check if there are updates
         result = subprocess.run(
             git_cmd + ["rev-list", f"HEAD..origin/{branch}", "--count"],
-            cwd=PROJECT_ROOT,
+            cwd=git_cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -3762,14 +3774,14 @@ def cmd_update(args):
             # Restore stash and switch back to original branch if we moved
             if auto_stash_ref is not None:
                 _restore_stashed_changes(
-                    git_cmd, PROJECT_ROOT, auto_stash_ref,
+                    git_cmd, git_cwd, auto_stash_ref,
                     prompt_user=prompt_for_restore,
                     input_fn=gw_input_fn,
                 )
             if current_branch not in ("main", "HEAD"):
                 subprocess.run(
                     git_cmd + ["checkout", current_branch],
-                    cwd=PROJECT_ROOT, capture_output=True, text=True, check=False,
+                    cwd=git_cwd, capture_output=True, text=True, check=False,
                 )
             print("✓ Already up to date!")
             return
@@ -3781,7 +3793,7 @@ def cmd_update(args):
         try:
             pull_result = subprocess.run(
                 git_cmd + ["pull", "--ff-only", "origin", branch],
-                cwd=PROJECT_ROOT,
+                cwd=git_cwd,
                 capture_output=True,
                 text=True,
             )
@@ -3792,7 +3804,7 @@ def cmd_update(args):
                 print("  ⚠ Fast-forward not possible (history diverged), resetting to match remote...")
                 reset_result = subprocess.run(
                     git_cmd + ["reset", "--hard", f"origin/{branch}"],
-                    cwd=PROJECT_ROOT,
+                    cwd=git_cwd,
                     capture_output=True,
                     text=True,
                 )
@@ -3813,7 +3825,7 @@ def cmd_update(args):
                 else:
                     _restore_stashed_changes(
                         git_cmd,
-                        PROJECT_ROOT,
+                        git_cwd,
                         auto_stash_ref,
                         prompt_user=prompt_for_restore,
                         input_fn=gw_input_fn,
@@ -3830,7 +3842,7 @@ def cmd_update(args):
 
         # Fork upstream sync logic (only for main branch on forks)
         if is_fork and branch == "main":
-            _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
+            _sync_with_upstream_if_needed(git_cmd, git_cwd)
         
         # Reinstall Python dependencies. Prefer .[all], but if one optional extra
         # breaks on this machine, keep base deps and reinstall the remaining extras

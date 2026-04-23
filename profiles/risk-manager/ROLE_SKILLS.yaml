@@ -12,6 +12,7 @@ allowed_tools:
 - get_smart_money_flows
 - get_portfolio_state
 - get_crypto_prices
+- send_notification
 assigned_skills:
 - pretrade_risk_validation
 - position_sizing
@@ -19,4 +20,5 @@ assigned_skills:
 - concentration_analysis
 - volatility_risk_control
 - event_risk_control
+- incident_escalation
 source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml

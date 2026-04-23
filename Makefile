@@ -59,7 +59,8 @@ dev-check:
 		"LiteLLM|http://127.0.0.1:$${LITELLM_PORT:-4000}/health/liveliness" \
 		"Dashboard|http://127.0.0.1:$${HERMES_DASHBOARD_PORT:-9119}/api/status" \
 		"API|http://127.0.0.1:$${HERMES_API_PORT:-8000}/api/v1/healthz" \
-		"Web|http://127.0.0.1:$${HERMES_WEB_PORT:-3000}"; \
+		"Web|http://127.0.0.1:$${HERMES_WEB_PORT:-3000}" \
+		"Mission Control|http://127.0.0.1:$${HERMES_MISSION_CONTROL_PORT:-3100}"; \
 	do \
 		name=$${target%%|*}; \
 		url=$${target#*|}; \
@@ -74,4 +75,5 @@ dev-check:
 	echo "  LiteLLM      $${LITELLM_PORT:-4000}"; \
 	echo "  Dashboard    $${HERMES_DASHBOARD_PORT:-9119}"; \
 	echo "  API          $${HERMES_API_PORT:-8000}"; \
-	echo "  Web          $${HERMES_WEB_PORT:-3000}"
+	echo "  Web          $${HERMES_WEB_PORT:-3000}"; \
+	echo "  Mission Ctrl $${HERMES_MISSION_CONTROL_PORT:-3100}"

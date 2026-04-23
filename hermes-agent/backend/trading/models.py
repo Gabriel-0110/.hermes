@@ -107,11 +107,13 @@ class ExecutionRequest(BaseModel):
     proposal_id: str | None = None
     symbol: str = Field(min_length=3, max_length=32)
     side: Literal["buy", "sell"]
-    order_type: Literal["market", "limit"] = "market"
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
     size_usd: float | None = Field(default=None, ge=0)
     amount: float | None = Field(default=None, ge=0)
     price: float | None = Field(default=None, gt=0)
     client_order_id: str | None = Field(default=None, min_length=1, max_length=64)
+    reduce_only: bool = False
+    position_side: Literal["long", "short"] | None = None
     rationale: str | None = Field(default=None, max_length=4000)
     strategy_id: str | None = Field(default=None, max_length=160)
     strategy_template_id: str | None = Field(default=None, max_length=160)
@@ -133,8 +135,8 @@ class ExecutionRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_request(self) -> "ExecutionRequest":
-        if self.order_type == "limit" and self.price is None:
-            raise ValueError("price is required for limit orders")
+        if self.order_type in {"limit", "stop", "stop_limit"} and self.price is None:
+            raise ValueError("price is required for limit and stop-style orders")
         if self.amount is None and self.size_usd is None:
             raise ValueError("either amount or size_usd must be provided")
         if self.idempotency_key is None:
@@ -145,6 +147,8 @@ class ExecutionRequest(BaseModel):
                 self.symbol,
                 self.side,
                 self.order_type,
+                "reduce-only" if self.reduce_only else "",
+                self.position_side or "",
             ]
             self.idempotency_key = ":".join(part for part in stable_parts if part)
         return self

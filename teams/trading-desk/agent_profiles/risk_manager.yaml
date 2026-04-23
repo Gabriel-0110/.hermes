@@ -13,6 +13,7 @@ allowed_tools:
   - get_smart_money_flows
   - get_portfolio_state
   - get_crypto_prices
+  - send_notification
 forbidden_actions:
   - no bypass of workflow
   - no raw direct execution
@@ -21,6 +22,7 @@ responsibilities:
   - size risk
   - detect event risk, volatility risk, and concentration risk
   - approve, reject, or resize proposals
+  - escalate operator-visible risk incidents and policy violations
 skills:
   - pretrade_risk_validation
   - position_sizing
@@ -28,6 +30,7 @@ skills:
   - concentration_analysis
   - volatility_risk_control
   - event_risk_control
+  - incident_escalation
 expected_inputs:
   - trade proposal
   - portfolio state
@@ -36,6 +39,7 @@ expected_outputs:
   - max size recommendation
   - stop or invalidation guidance
   - risk flags
+  - incident alert
 
 platforms:
   slack:

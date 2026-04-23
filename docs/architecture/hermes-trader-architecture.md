@@ -146,11 +146,15 @@ This is the default primary decision-making agent.
 - receive user or system requests
 - decide which agent(s) to invoke
 - merge outputs from research, strategy, portfolio, and risk agents
-- produce final trade proposals
-- trigger approved actions or request human confirmation depending on mode
+- produce final trade proposals, execution intents, and market/result summaries
+- hand off execution, notification, persistence, and audit side effects to the runtime and Mission Control services
 
 #### Notes
 This functions as the primary coordination and decision layer of the platform.
+
+It should not directly own operator notification delivery, reconciliation,
+background job execution, or audit-log persistence. Its job is to stay focused on
+market interpretation, result synthesis, and decision composition.
 
 ### 5.2 Market Research Agent
 #### Responsibilities
@@ -292,6 +296,8 @@ This functions as a market-context acquisition and tooling bridge.
 
 #### Responsibilities
 - chart and market structure access
+- visualize proposed and executed movements from the canonical database-backed movement journal
+- render entry, exit, invalidation, stop, and alert overlays from persisted execution and risk events
 - external market workspace integration
 - signal extraction from TradingView-connected workflows
 - ingestion pipeline into agent-usable tools
@@ -314,6 +320,8 @@ This layer should capture the critical telemetry already needed by Hermes, while
 - model/provider latency across OpenAI, Anthropic, Ollama, and LM Studio paths
 - tool invocation metrics and error rates
 - execution audit logs
+- structured correlation IDs linking proposal, approval, execution, notification, and operator actions
+- database-backed movement journals for orders, fills, cancels, reallocations, and portfolio-state changes
 - webhook delivery status
 - notification delivery status
 - portfolio and risk event timelines
@@ -334,6 +342,9 @@ Used to distribute key events to external channels and operational endpoints.
 - agent conflict detected
 - new strategy signal
 
+Notification dispatch should be owned by specialized monitoring/risk flows or
+Mission Control workers, not by the Orchestrator directly.
+
 ### 8.5 Dashboard & Management
 A visual operator interface for system supervision and operational review.
 
@@ -345,6 +356,9 @@ A visual operator interface for system supervision and operational review.
 - open positions
 - exposure and risk limits
 - recent decisions
+- movement journal
+- execution timeline
+- TradingView-linked annotations and replay
 - audit trail
 - alerts and webhook activity
 - strategy performance
@@ -371,7 +385,8 @@ This layer is explicitly represented in the architecture because it is one of th
 - translate approved decisions into executable actions across supported venues
 - validate actions against exchange/account constraints
 - apply final risk checks before order placement
-- record decisions, execution activity, and downstream outcomes
+- persist every proposal, approval, execution request, order, fill, cancel, and portfolio movement to canonical database tables
+- record decisions, execution activity, downstream outcomes, and operator acknowledgements in structured audit logs
 - support dry-run, simulation, paper-trading, and live modes
 
 ### Current Execution Stack
@@ -381,6 +396,8 @@ This layer is explicitly represented in the architecture because it is one of th
 - **Execution transport:** exchange or broker connectors exposed through shared tools/services
 - **Persistence target for market and trade-related time-series data:** PostgreSQL with TimescaleDB extension
 - **Application persistence base:** PostgreSQL application database
+- **Visualization source:** TradingView MCP and dashboard views backed by persisted market, movement, and execution records
+- **Audit sink:** structured application logs plus append-only audit/event records
 
 ### Suggested operating modes
 - Research Mode
@@ -396,8 +413,10 @@ This layer is explicitly represented in the architecture because it is one of th
 3. Portfolio monitor checks current state
 4. Orchestrator composes trade intent
 5. Risk manager validates or vetoes
-6. Execution connector routes the order
-7. Mission Control logs, visualizes, and notifies
+6. Execution service or connector routes the approved request
+7. Database records the movement, execution, and audit trail
+8. Mission Control visualizes the result in dashboard and TradingView-linked surfaces
+9. Notification workers distribute operator-facing alerts
 
 ### Queueing and Job-Orchestration Note
 Hermes already depends on multi-step and scheduled workflows, but the dedicated queue/broker layer should be treated as an infrastructure concern that is either lightweight today or still being formalized. In architecture terms, Hermes should reserve space for:
@@ -451,9 +470,10 @@ Hermes is designed to run as a containerized multi-service system with local-fir
 5. Orchestrator/trader produces a proposed action
 6. Risk manager validates or rejects
 7. Execution connector places, modifies, or cancels order
-8. Observability stack logs the full chain
-9. Notifications/webhooks alert operator channels
-10. Dashboard reflects live state and decision history
+8. The database stores the proposal, approval, order lifecycle, fills, and resulting movement records
+9. Observability stack logs the full chain with audit correlation
+10. Notifications/webhooks alert operator channels through specialized workers or monitoring agents
+11. Dashboard and TradingView-linked views reflect live state and decision history
 
 ### Workflow B — Human-in-the-Loop Review Flow
 1. Agents prepare recommendation
@@ -469,6 +489,10 @@ Hermes is designed to run as a containerized multi-service system with local-fir
 3. Alerts are triggered if thresholds break
 4. Orchestrator can pause execution or escalate
 5. Mission Control surfaces the incident immediately
+
+In this workflow, operator-facing escalation should be emitted by the risk or
+monitoring paths and then recorded to the audit trail, rather than being sent
+directly by the Orchestrator.
 
 ---
 
@@ -546,6 +570,28 @@ These are the architectural components that should be explicitly represented as 
 - environment roles
 - approval authority boundaries
 
+### H. Visualization / Replay Layer
+- TradingView-linked chart overlays for entries, exits, invalidations, and stop events
+- dashboard timelines for orders, fills, reallocations, and portfolio drift
+- replayable market and decision views sourced from persisted database records
+
+### I. Notification Dispatch Layer
+- dedicated delivery workers or non-orchestrator agents for Telegram, Slack, dashboard alerts, and webhooks
+- retry, backoff, delivery-status persistence, and escalation rules
+- normalized event envelopes so alerts are tied to the same correlation IDs as decisions and executions
+
+### J. Audit / Movement Journal Layer
+- append-only audit records for proposals, approvals, executions, notifications, and operator actions
+- canonical movement journal for fills, transfers, position changes, and balance changes
+- operator-visible traceability from market signal to final portfolio outcome
+
+### Highest-priority implementation gaps to close
+1. Enforce Orchestrator scope in manifests, prompts, and runtime routing so it does not directly own notifications or audit persistence.
+2. Persist all movement events to PostgreSQL/Timescale-backed canonical tables instead of relying on transient tool output.
+3. Feed TradingView and dashboard visualization from those persisted movement and audit records.
+4. Route operator notifications through Risk Manager, Portfolio Monitor, or Mission Control workers rather than the Orchestrator.
+5. Stamp all decision, execution, and notification events with correlation IDs and structured audit records.
+
 ---
 
 ## 14. Mermaid Diagram Set — Focused Architecture Views
@@ -614,11 +660,14 @@ flowchart LR
   PM --> OT
 
   OT --> RM[Risk Manager]
-  RM -->|approved| EX[Execution Connector]
+  RM -->|approved| EQ[Execution Request Queue]
   RM -->|rejected / resized| OT
+  PM --> NWH[Notifications & Webhooks]
+  RM --> NWH
 
-  EX --> DB[(Trade & Market Storage)]
-  EX --> NWH[Notifications & Webhooks]
+  EQ --> EX[Execution Connector]
+  EX --> DB[(Trade, Movement & Audit Storage)]
+  DB --> TV[TradingView / Dashboard Views]
   DB --> MC[Mission Control]
   NWH --> MC
 ```
@@ -658,10 +707,13 @@ flowchart LR
   C --> E
   D --> E
   E --> F[Risk Manager]
-  F -->|approved| G[Execution Connector]
+  F -->|approved| Q[Execution Request Queue]
   F -->|rejected or resized| E
-  G --> PG[(PostgreSQL + TimescaleDB)]
-  G --> NWH[Notifications / Webhooks]
+  D --> NWH[Notifications / Webhooks]
+  F --> NWH
+  Q --> G[Execution Connector]
+  G --> PG[(PostgreSQL + TimescaleDB\ntrade • movement • audit)]
+  PG --> TV[TradingView / Dashboard Views]
   PG --> J[Dashboard / Mission Control]
   NWH --> J
   E --> J

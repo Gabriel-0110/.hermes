@@ -72,6 +72,25 @@ export const api = {
     if (params.workflow_run_id) qs.set("workflow_run_id", params.workflow_run_id);
     return fetchJSON<ExecutionEventRecord[]>(`/api/observability/execution-events?${qs.toString()}`);
   },
+  getMovements: (
+    params: {
+      limit?: number;
+      correlation_id?: string;
+      workflow_run_id?: string;
+      symbol?: string;
+      account_id?: string;
+      movement_type?: string;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set("limit", String(params.limit));
+    if (params.correlation_id) qs.set("correlation_id", params.correlation_id);
+    if (params.workflow_run_id) qs.set("workflow_run_id", params.workflow_run_id);
+    if (params.symbol) qs.set("symbol", params.symbol);
+    if (params.account_id) qs.set("account_id", params.account_id);
+    if (params.movement_type) qs.set("movement_type", params.movement_type);
+    return fetchJSON<MovementRecord[]>(`/api/observability/movements?${qs.toString()}`);
+  },
   getSystemErrors: (params: { limit?: number; correlation_id?: string; workflow_run_id?: string } = {}) => {
     const qs = new URLSearchParams();
     if (params.limit) qs.set("limit", String(params.limit));
@@ -389,6 +408,8 @@ export interface ExecutionEventRecord {
   workflow_run_id?: string | null;
   event_id?: string | null;
   correlation_id?: string | null;
+  symbol?: string | null;
+  payload?: Record<string, unknown>;
   agent_name?: string | null;
   workflow_name?: string | null;
   workflow_step?: string | null;
@@ -399,6 +420,30 @@ export interface ExecutionEventRecord {
   summarized_input?: string | null;
   summarized_output?: string | null;
   error_message?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MovementRecord {
+  id: string;
+  movement_time: string;
+  workflow_run_id?: string | null;
+  event_id?: string | null;
+  correlation_id?: string | null;
+  account_id?: string | null;
+  symbol?: string | null;
+  movement_type: string;
+  status: string;
+  side?: string | null;
+  quantity?: number | null;
+  cash_delta_usd?: number | null;
+  notional_delta_usd?: number | null;
+  price?: number | null;
+  execution_mode?: string | null;
+  order_id?: string | null;
+  request_id?: string | null;
+  idempotency_key?: string | null;
+  source_kind?: string | null;
+  payload?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 
@@ -442,6 +487,7 @@ export interface ObservabilityDashboardResponse {
   pending_or_in_progress: WorkflowRunRecord[];
   recent_failures: SystemErrorRecord[];
   recent_execution_events: ExecutionEventRecord[];
+  recent_movements: MovementRecord[];
   recent_risk_rejections: AgentDecisionRecord[];
   recent_notifications: NotificationAuditRecord[];
 }

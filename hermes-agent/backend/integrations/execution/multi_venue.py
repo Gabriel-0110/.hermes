@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+import hashlib
+import hmac
+import json
+import time
 from typing import Any
+
+import requests
 
 from backend.integrations.base import IntegrationError, MissingCredentialError, ProviderProfile
 from backend.integrations.execution.mode import (
@@ -23,6 +29,10 @@ from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, E
 
 logger = logging.getLogger(__name__)
 
+_BITMART_DIRECT_FUTURES_BASE_URL = "https://api-cloud-v2.bitmart.com"
+_BITMART_DIRECT_FUTURES_ORDER_PATH = "/contract/private/submit-order"
+_BITMART_DIRECT_USER_AGENT = "bitmart-skills/futures/v2026.3.23"
+
 _EXECUTION_TOOLS = [
     "get_exchange_balances",
     "get_open_orders",
@@ -36,7 +46,7 @@ _EXECUTION_TOOLS = [
 _VENUE_DEFAULTS: dict[str, dict[str, Any]] = {
     "bitmart": {
         "provider_profile": "bitmart",
-        "default_account_type": "spot",
+        "default_account_type": "swap",
         "required_credentials": ("API_KEY", "SECRET", "MEMO"),
         "live_urls": (
             "https://api-cloud-v2.bitmart.com",
@@ -347,7 +357,22 @@ class VenueExecutionClient:
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
     ) -> ExecutionOrder:
+        if self._should_use_bitmart_direct_swap_submission(order_type):
+            return self._submit_bitmart_swap_order(
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                amount=amount,
+                price=price,
+                client_order_id=client_order_id,
+                time_in_force=time_in_force,
+                post_only=post_only,
+                reduce_only=reduce_only,
+                position_side=position_side,
+            )
         self._ensure_markets_loaded()
         exchange = self._get_exchange()
         params: dict[str, Any] = {}
@@ -357,6 +382,10 @@ class VenueExecutionClient:
             params["timeInForce"] = time_in_force
         if post_only:
             params["postOnly"] = True
+        if reduce_only:
+            params["reduceOnly"] = True
+        if position_side:
+            params["positionSide"] = position_side.upper()
         logger.info("Submitting %s order for %s %s %s", self.provider.name, symbol, side, order_type)
         order = self._call_exchange(
             "create_order",
@@ -371,6 +400,151 @@ class VenueExecutionClient:
         normalized = self._normalize_order(order)
         logger.info("%s order submitted successfully for %s as %s", self.provider.name, normalized.symbol, normalized.order_id)
         return normalized
+
+    def _should_use_bitmart_direct_swap_submission(self, order_type: str) -> bool:
+        normalized_type = (order_type or "").strip().lower()
+        return (
+            self.exchange_id == "bitmart"
+            and self.account_type in {"contract", "futures", "swap"}
+            and normalized_type in {"market", "limit"}
+        )
+
+    def _bitmart_swap_side_code(self, *, side: str, reduce_only: bool, position_side: str | None) -> int:
+        normalized_side = (side or "").strip().lower()
+        normalized_position_side = (position_side or "").strip().lower() or None
+        if normalized_side not in {"buy", "sell"}:
+            raise IntegrationError(f"Unsupported BitMart order side: {side!r}")
+        if normalized_position_side == "long" and normalized_side != "sell" and reduce_only:
+            raise IntegrationError("Closing a long BitMart futures position must use side='sell'.")
+        if normalized_position_side == "short" and normalized_side != "buy" and reduce_only:
+            raise IntegrationError("Closing a short BitMart futures position must use side='buy'.")
+        if normalized_side == "buy":
+            return 2 if reduce_only else 1
+        return 3 if reduce_only else 4
+
+    def _bitmart_futures_order_mode(self, *, order_type: str, time_in_force: str | None, post_only: bool) -> int | None:
+        if post_only:
+            if order_type != "limit":
+                raise IntegrationError("BitMart post-only is only supported for limit orders.")
+            return 4
+        if time_in_force == "GTC":
+            return 1
+        if time_in_force == "FOK":
+            return 2
+        if time_in_force == "IOC":
+            return 3
+        return None
+
+    def _submit_bitmart_swap_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float | None = None,
+        client_order_id: str | None = None,
+        time_in_force: str | None = None,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
+    ) -> ExecutionOrder:
+        self.require_credentials()
+        exchange = self._get_exchange()
+        self._ensure_markets_loaded()
+        market = exchange.market(symbol)
+        market_symbol = market.get("id") or symbol
+        order_type_normalized = (order_type or "").strip().lower()
+        if order_type_normalized not in {"market", "limit"}:
+            raise IntegrationError(f"Unsupported direct BitMart futures order type: {order_type!r}")
+
+        size_precise = exchange.amount_to_precision(symbol, amount)
+        size = int(float(size_precise))
+        if size <= 0:
+            raise IntegrationError(f"BitMart futures order size resolved to {size}; a positive contract size is required.")
+
+        request: dict[str, Any] = {
+            "symbol": market_symbol,
+            "type": order_type_normalized,
+            "side": self._bitmart_swap_side_code(side=side, reduce_only=reduce_only, position_side=position_side),
+            "size": size,
+        }
+        mode = self._bitmart_futures_order_mode(
+            order_type=order_type_normalized,
+            time_in_force=time_in_force,
+            post_only=post_only,
+        )
+        if mode is not None:
+            request["mode"] = mode
+        if order_type_normalized == "limit":
+            if price is None:
+                raise IntegrationError("BitMart futures limit orders require a price.")
+            request["price"] = exchange.price_to_precision(symbol, price)
+        if client_order_id:
+            request["client_order_id"] = client_order_id
+        if not reduce_only:
+            request["open_type"] = os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross"
+
+        body_json = json.dumps(request, separators=(",", ":"))
+        timestamp = str(int(time.time() * 1000))
+        signature_payload = f"{timestamp}#{self._memo}#{body_json}"
+        signature = hmac.new(self._secret.encode(), signature_payload.encode(), hashlib.sha256).hexdigest()
+        base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
+        url = f"{base_url}{_BITMART_DIRECT_FUTURES_ORDER_PATH}"
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": _BITMART_DIRECT_USER_AGENT,
+            "X-BM-KEY": self._api_key,
+            "X-BM-SIGN": signature,
+            "X-BM-TIMESTAMP": timestamp,
+        }
+        logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
+        try:
+            response = requests.post(url, data=body_json, headers=headers, timeout=30)
+        except Exception as exc:
+            raise IntegrationError(f"BITMART submit-order request failed before a response was received: {exc}") from exc
+
+        if response.status_code >= 400:
+            body_preview = response.text[:300]
+            raise IntegrationError(
+                f"BITMART submit-order HTTP {response.status_code}: {body_preview or 'empty response body'}"
+            )
+
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise IntegrationError(
+                f"BITMART submit-order returned non-JSON content: {response.text[:300]}"
+            ) from exc
+
+        if payload.get("code") != 1000:
+            raise IntegrationError(
+                f"BITMART submit-order rejected the request: code={payload.get('code')} "
+                f"message={payload.get('message')!r} trace={payload.get('trace')!r}"
+            )
+
+        data = payload.get("data") or {}
+        submitted_at = datetime.now(timezone.utc).isoformat()
+        return ExecutionOrder(
+            order_id=str(data.get("order_id") or data.get("orderId") or ""),
+            exchange=self.provider.name,
+            symbol=symbol,
+            side=side,
+            order_type=order_type_normalized,
+            status="submitted",
+            client_order_id=client_order_id,
+            price=price if price is not None else float_or_none(data.get("price")),
+            average_price=None,
+            amount=float(size),
+            filled=0.0,
+            remaining=float(size),
+            cost=None,
+            time_in_force=time_in_force,
+            post_only=post_only,
+            reduce_only=reduce_only,
+            created_at=submitted_at,
+            updated_at=submitted_at,
+        )
 
     def cancel_order(self, *, order_id: str, symbol: str | None = None) -> ExecutionOrder:
         exchange = self._get_exchange()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -108,6 +109,15 @@ def _summarize_portfolio(portfolio: PortfolioState) -> PositionRiskSummary:
     )
 
 
+def _parse_jsonish(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
 def _extract_last_execution_context(*, symbol: str | None = None) -> PositionMonitorExecutionContext | None:
     try:
         rows = get_observability_service().get_execution_event_history(limit=20)
@@ -118,7 +128,7 @@ def _extract_last_execution_context(*, symbol: str | None = None) -> PositionMon
     for row in rows:
         if symbol and row.get("symbol") not in {None, symbol}:
             continue
-        output = row.get("summarized_output") or {}
+        output = _parse_jsonish(row.get("summarized_output")) or {}
         payload = row.get("payload") or {}
         outcome = output.get("execution_outcome") or payload.get("execution_outcome")
         result = output.get("execution_result") or payload.get("execution_result")
@@ -142,6 +152,68 @@ def _extract_last_execution_context(*, symbol: str | None = None) -> PositionMon
             observed_at=row.get("created_at"),
         )
     return None
+
+
+def _position_for_symbol(portfolio: PortfolioState, symbol: str) -> PortfolioAsset | None:
+    for position in portfolio.positions:
+        if position.symbol == symbol:
+            return position
+    return None
+
+
+def _record_portfolio_movement(
+    *,
+    account_id: str,
+    base_portfolio: PortfolioState,
+    updated_portfolio: PortfolioState,
+    request: ExecutionRequest,
+    result: ExecutionResult,
+    source_kind: str,
+    status: str,
+) -> None:
+    before_position = _position_for_symbol(base_portfolio, request.symbol)
+    after_position = _position_for_symbol(updated_portfolio, request.symbol)
+    before_qty = before_position.quantity if before_position is not None else 0.0
+    after_qty = after_position.quantity if after_position is not None else 0.0
+    before_notional = before_position.notional_usd if before_position and before_position.notional_usd is not None else 0.0
+    after_notional = after_position.notional_usd if after_position and after_position.notional_usd is not None else 0.0
+    cash_delta = None
+    if base_portfolio.cash_usd is not None and updated_portfolio.cash_usd is not None:
+        cash_delta = updated_portfolio.cash_usd - base_portfolio.cash_usd
+
+    get_observability_service().record_movement(
+        movement_type="portfolio_sync_completed" if result.execution_mode == "live" else "portfolio_projection_applied",
+        status=status,
+        account_id=account_id,
+        symbol=request.symbol,
+        side=request.side,
+        quantity=after_qty - before_qty,
+        cash_delta_usd=cash_delta,
+        notional_delta_usd=after_notional - before_notional,
+        price=request.price or (after_position.mark_price if after_position is not None else None),
+        execution_mode=result.execution_mode,
+        order_id=result.order_id,
+        request_id=request.request_id,
+        idempotency_key=request.idempotency_key,
+        source_kind=source_kind,
+        correlation_id=result.correlation_id,
+        workflow_run_id=result.workflow_id,
+        payload={
+            "before": {
+                "quantity": before_qty,
+                "notional_usd": before_notional,
+                "cash_usd": base_portfolio.cash_usd,
+            },
+            "after": {
+                "quantity": after_qty,
+                "notional_usd": after_notional,
+                "cash_usd": updated_portfolio.cash_usd,
+            },
+            "execution_request": request.model_dump(mode="json"),
+            "execution_result": result.model_dump(mode="json"),
+        },
+        metadata={"account_id": account_id, "positions_count": len(updated_portfolio.positions)},
+    )
 
 
 def _position_states(
@@ -297,9 +369,21 @@ def apply_execution_outcome_to_portfolio(
     if not result.success:
         return None
 
+    base_portfolio = _portfolio_from_tool(effective_account_id)
+
     if result.execution_mode == "live":
         try:
-            return sync_portfolio_from_exchange(account_id=effective_account_id)
+            updated = sync_portfolio_from_exchange(account_id=effective_account_id)
+            _record_portfolio_movement(
+                account_id=effective_account_id,
+                base_portfolio=base_portfolio,
+                updated_portfolio=updated,
+                request=request,
+                result=result,
+                source_kind="position_manager.live_sync",
+                status="synced",
+            )
+            return updated
         except Exception as exc:
             logger.warning(
                 "position_manager: live execution sync failed for request_id=%s: %s",
@@ -309,9 +393,8 @@ def apply_execution_outcome_to_portfolio(
             return None
 
     snapshot_row = _load_latest_snapshot_row(effective_account_id)
-    base_portfolio = _portfolio_from_tool(effective_account_id)
     updated = _apply_paper_execution_to_portfolio(base_portfolio, request=request, result=result)
-    return _persist_portfolio_state(
+    persisted = _persist_portfolio_state(
         updated,
         metadata={
             **(getattr(snapshot_row, "payload", None) or {}),
@@ -323,3 +406,13 @@ def apply_execution_outcome_to_portfolio(
             "positions_count": len(updated.positions),
         },
     )
+    _record_portfolio_movement(
+        account_id=effective_account_id,
+        base_portfolio=base_portfolio,
+        updated_portfolio=persisted,
+        request=request,
+        result=result,
+        source_kind="position_manager.execution_projection",
+        status="projected",
+    )
+    return persisted

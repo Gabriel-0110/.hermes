@@ -95,6 +95,42 @@ async def get_recent_execution_events(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/alerts/recent")
+async def get_recent_tradingview_alerts(
+    limit: int = Query(default=20, ge=1, le=100),
+    symbol: str | None = Query(default=None),
+    processing_status: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        store = tradingview_store()
+        rows = store.list_alerts(
+            limit=limit,
+            symbol=symbol,
+            processing_status=processing_status,
+        )
+        return {"status": "live", "count": len(rows), "alerts": rows}
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/movements")
+async def get_recent_movements(
+    limit: int = Query(default=20, ge=1, le=100),
+    symbol: str | None = Query(default=None),
+    correlation_id: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        service = observability_service()
+        rows = service.get_movement_history(
+            limit=limit,
+            symbol=symbol,
+            correlation_id=correlation_id,
+        )
+        return {"status": "live", "count": len(rows), "movements": rows}
+    except HermesAgentBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/place")
 async def place_trade_order(
     symbol: str = Body(embed=True),
@@ -103,6 +139,10 @@ async def place_trade_order(
     amount: float = Body(embed=True, gt=0),
     price: float | None = Body(default=None, embed=True),
     client_order_id: str | None = Body(default=None, embed=True),
+    reduce_only: bool = Body(default=False, embed=True),
+    close_only: bool = Body(default=False, embed=True),
+    position_side: Literal["long", "short"] | None = Body(default=None, embed=True),
+    approval_id: str | None = Body(default=None, embed=True),
     _: None = Depends(require_api_key),
 ) -> dict[str, object]:
     """Place a trade order directly through the configured exchange connector.
@@ -130,6 +170,10 @@ async def place_trade_order(
                 "amount": amount,
                 "price": price,
                 "client_order_id": client_order_id,
+                "reduce_only": reduce_only,
+                "close_only": close_only,
+                "position_side": position_side,
+                "approval_id": approval_id,
             }
         )
         if not result.get("ok", True):

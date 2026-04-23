@@ -20,7 +20,7 @@ Step 8 adds LiteLLM as the centralized LLM gateway for Hermes and Paperclip-comp
 | LUNARCRUSH | Social sentiment and engagement trends | `LUNARCRUSH_API_KEY` | `get_social_sentiment`, `get_social_spike_alerts` |
 | NANSEN | Smart-money analytics and labeled wallets | `NANSEN_API_KEY` | `get_smart_money_flows`, `get_labeled_wallet_activity`, `get_onchain_signal_summary` |
 | DEFILLAMA | Free DeFi protocol, chain, DEX, fee, yield, and regime intelligence from the public `api.llama.fi` surface | None required for the free API | `get_defi_protocols`, `get_defi_protocol_details`, `get_defi_chain_overview`, `get_defi_yields`, `get_defi_dex_overview`, `get_defi_fees_overview`, `get_defi_open_interest`, `get_defi_regime_summary` |
-| BITMART (via CCXT) | Spot execution, balances, order state, and trade history | `BITMART_API_KEY`, `BITMART_SECRET`, `BITMART_MEMO` | `get_exchange_balances`, `get_open_orders`, `place_order`, `cancel_order`, `get_order_history`, `get_trade_history`, `get_execution_status` |
+| BITMART (via CCXT) | Perpetual futures execution, balances, order state, and trade history | `BITMART_API_KEY`, `BITMART_SECRET`, `BITMART_MEMO` | `get_exchange_balances`, `get_open_orders`, `place_order`, `cancel_order`, `get_order_history`, `get_trade_history`, `get_execution_status` |
 | LiteLLM gateway | Centralized model routing, fallback ordering, and spend/budget enforcement for Hermes/Paperclip agents | `LITELLM_API_KEY` or `LITELLM_MASTER_KEY` at the client edge; upstream keys remain backend-only | Route names such as `orchestrator-default`, `research-cheap`, `research-strong`, `risk-stable`, `strategy-default`, `local-fast` |
 
 ## Where keys belong
@@ -47,7 +47,9 @@ Step 8 adds LiteLLM as the centralized LLM gateway for Hermes and Paperclip-comp
 
 - BitMart execution now lives under `backend/integrations/execution/ccxt_client.py`.
 - The shared execution adapter enables CCXT rate limiting and injects the BitMart memo during client setup.
+- BitMart defaults to the swap/perpetual account path for execution workflows.
 - Execution wrappers expose only normalized balances, orders, trades, and status records.
+- `place_order` now supports reduce-only futures close flows by passing `reduce_only` and optional `position_side` through to the execution venue client.
 - `orchestrator_trader` can request placement/cancellation/status, `portfolio_monitor` can inspect balances and history, and `risk_manager` can inspect balances/open orders/status.
 - `strategy_agent` and `market_researcher` do not have direct execution permissions.
 

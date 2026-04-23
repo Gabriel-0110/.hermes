@@ -20,6 +20,7 @@ All desk agents must remain aligned with:
 - No revenge trading. No FOMO. No fee-blind scalping. Protect capital to preserve the printer.
 - Orchestrator is the only agent allowed to own final execution state.
 - Supporting agents propose, score, validate, and monitor. They do not outrank the orchestrator.
+- Supporting agents, not orchestrator, own recurring cron/reporting/announcement workflows unless Ben or Gabe explicitly instruct otherwise for a one-off exception.
 - Every agent must report in a way the orchestrator can merge without ambiguity.
 
 ## Team Topology

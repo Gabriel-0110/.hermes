@@ -556,6 +556,25 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
             workflow_run_id=ev.workflow_id,
             payload={"execution_outcome": outcome.model_dump(mode="json")},
         )
+        get_observability_service().record_movement(
+            movement_type="order_simulated",
+            status="paper_filled",
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.amount,
+            notional_delta_usd=request.size_usd,
+            price=request.price,
+            execution_mode=result.execution_mode,
+            order_id=result.order_id,
+            request_id=request.request_id,
+            idempotency_key=request.idempotency_key,
+            source_kind="execution_worker.paper",
+            correlation_id=ev.correlation_id,
+            workflow_run_id=ev.workflow_id,
+            event_id=ev.event_id,
+            payload={"execution_outcome": outcome.model_dump(mode="json")},
+            metadata={"proposal_id": request.proposal_id},
+        )
         try:
             from backend.trading.position_manager import apply_execution_outcome_to_portfolio
 
@@ -595,6 +614,28 @@ def _record_execution_event(
                 "idempotency_key": outcome.request.idempotency_key,
                 "proposal_id": outcome.request.proposal_id,
             },
+        )
+        get_observability_service().record_movement(
+            movement_type=event_type,
+            status=result.status,
+            symbol=outcome.request.symbol,
+            side=outcome.request.side,
+            quantity=outcome.request.amount,
+            notional_delta_usd=outcome.request.size_usd,
+            price=outcome.request.price,
+            execution_mode=result.execution_mode,
+            order_id=result.order_id,
+            request_id=outcome.request.request_id,
+            idempotency_key=outcome.request.idempotency_key,
+            source_kind="execution_worker.live",
+            correlation_id=ev.correlation_id,
+            workflow_run_id=ev.workflow_id,
+            event_id=ev.event_id,
+            payload={
+                "execution_request": outcome.request.model_dump(mode="json"),
+                "execution_result": result.model_dump(mode="json"),
+            },
+            metadata={"proposal_id": outcome.request.proposal_id},
         )
         if result.success:
             try:

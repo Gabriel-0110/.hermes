@@ -16,36 +16,39 @@ agents:
   profile: orchestrator
   model: ''
   provider: ''
-  role: central coordinator and workflow router
+  role: central coordinator for market and result decisions
   responsibilities:
   - receive goals
   - collect outputs from all agents
   - manage decision flow
-  - request trade execution through internal workflow only
-  - trigger reports and notifications
+  - produce approved action intents and market/result summaries
+  - hand off execution requests through internal workflow only
   reports_to: null
   forbidden_actions:
   - no raw market-provider access
   - no raw secret access
   - no direct provider HTTP calls
+  - no direct operator notification delivery
+  - no direct audit-log persistence ownership
   allowed_toolsets:
   - trading-orchestrator
   allowed_tools:
   - list_trade_candidates
   - get_risk_approval
   - get_portfolio_state
-  - send_notification
   - get_execution_status
+  - get_recent_tradingview_alerts
+  - get_pending_signal_events
+  - get_tradingview_alert_context
   assigned_skills:
   - workflow_routing
   - decision_aggregation
   - execution_requesting
-  - incident_escalation
   expected_outputs:
   - approved action plan
-  - trade execution request
+  - execution request
   - workflow summary
-  - alert decisions
+  - market/result summary
 - name: market-researcher
   canonical_agent_id: market_researcher
   profile: market-researcher
@@ -135,6 +138,7 @@ agents:
   - size risk
   - detect event risk, volatility risk, and concentration risk
   - approve, reject, or resize proposals
+  - escalate operator-visible risk incidents and policy violations
   reports_to: orchestrator
   forbidden_actions:
   - no bypass of workflow
@@ -151,6 +155,7 @@ agents:
   - get_smart_money_flows
   - get_portfolio_state
   - get_crypto_prices
+  - send_notification
   assigned_skills:
   - pretrade_risk_validation
   - position_sizing
@@ -158,11 +163,13 @@ agents:
   - concentration_analysis
   - volatility_risk_control
   - event_risk_control
+  - incident_escalation
   expected_outputs:
   - risk approval or rejection
   - max size recommendation
   - stop or invalidation guidance
   - risk flags
+  - incident alert
 - name: portfolio-monitor
   canonical_agent_id: portfolio_monitor
   profile: portfolio-monitor

@@ -48,7 +48,25 @@ def test_observability_service_persists_and_queries_timeline(tmp_path, monkeypat
         service.record_execution_event(
             status="approved",
             event_type="execution_handoff_ready",
+            symbol="BTCUSDT",
+            payload={"execution_request": {"symbol": "BTCUSDT", "amount": 0.1}},
             summarized_output={"size_usd": 2000},
+        )
+        service.record_movement(
+            movement_type="order_simulated",
+            status="paper_filled",
+            account_id="paper",
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=0.1,
+            cash_delta_usd=-2000,
+            notional_delta_usd=2000,
+            price=20000,
+            execution_mode="paper",
+            request_id="exec_req_test_1",
+            idempotency_key="idem_test_1",
+            source_kind="test_suite",
+            payload={"note": "movement persisted"},
         )
         service.record_system_error(
             status="failed",
@@ -77,6 +95,12 @@ def test_observability_service_persists_and_queries_timeline(tmp_path, monkeypat
 
     execution_events = service.get_execution_event_history(correlation_id="corr_test_1")
     assert execution_events[0]["event_type"] == "execution_handoff_ready"
+    assert execution_events[0]["symbol"] == "BTCUSDT"
+    assert execution_events[0]["payload"]["execution_request"]["symbol"] == "BTCUSDT"
+
+    movements = service.get_movement_history(correlation_id="corr_test_1")
+    assert movements[0]["movement_type"] == "order_simulated"
+    assert movements[0]["account_id"] == "paper"
 
     failures = service.get_recent_failures()
     assert failures[0]["error_type"] == "RuntimeError"
@@ -85,3 +109,4 @@ def test_observability_service_persists_and_queries_timeline(tmp_path, monkeypat
     assert any(item["kind"] == "workflow_run" for item in timeline)
     assert any(item["kind"] == "workflow_step" for item in timeline)
     assert any(item["kind"] == "tool_call" for item in timeline)
+    assert any(item["kind"] == "movement" for item in timeline)

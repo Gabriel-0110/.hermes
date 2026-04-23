@@ -4,9 +4,9 @@
 
 - `workflow_routing`: orchestrator-only routing and task coordination. Depends on `list_trade_candidates`, `get_risk_approval`, `get_portfolio_state`, `get_execution_status`.
 - `decision_aggregation`: orchestrator merge layer for research, strategy, risk, and portfolio outputs.
-- `execution_requesting`: orchestrator bridge into a future execution subsystem. Depends on `get_execution_status`, `send_notification`.
-- `incident_escalation`: orchestrator escalation path for failures or policy violations. Depends on `send_notification`.
-- `send_structured_alert`: orchestrator or portfolio monitor notification wrapper. Depends on `send_notification`.
+- `execution_requesting`: orchestrator handoff layer that turns an approved action into a normalized execution request. Depends on `get_execution_status`.
+- `incident_escalation`: risk or monitoring escalation path for failures, policy violations, or abnormal conditions. Depends on `send_notification`.
+- `send_structured_alert`: portfolio or risk notification wrapper. Depends on `send_notification`.
 - `audit_logging`: shared convention for redacted audit records.
 
 ## Research skills
@@ -50,8 +50,8 @@
 
 ## Agent to skill mapping
 
-- `orchestrator_trader`: `workflow_routing`, `decision_aggregation`, `execution_requesting`, `incident_escalation`.
+- `orchestrator_trader`: `workflow_routing`, `decision_aggregation`, `execution_requesting`.
 - `market_researcher`: research skills.
 - `portfolio_monitor`: portfolio skills.
-- `risk_manager`: risk skills.
+- `risk_manager`: risk skills plus `incident_escalation`.
 - `strategy_agent`: strategy skills.

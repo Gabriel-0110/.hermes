@@ -13,6 +13,7 @@ from .models import (
     AgentDecisionRow,
     EvaluationScoreRow,
     ExecutionEventRow,
+    MovementJournalRow,
     NotificationSentRow,
     PortfolioSnapshotRow,
     RegressionComparisonRow,
@@ -700,6 +701,82 @@ class HermesTimeSeriesRepository:
         if workflow_run_id:
             statement = statement.where(ExecutionEventRow.workflow_run_id == workflow_run_id)
         statement = statement.order_by(desc(ExecutionEventRow.created_at)).limit(max(1, min(limit, 500)))
+        return list(self.session.scalars(statement))
+
+    def insert_movement_journal_entry(
+        self,
+        *,
+        movement_type: str,
+        status: str,
+        workflow_run_id: str | None,
+        event_id: str | None,
+        correlation_id: str | None,
+        account_id: str | None = None,
+        symbol: str | None = None,
+        side: str | None = None,
+        quantity: float | None = None,
+        cash_delta_usd: float | None = None,
+        notional_delta_usd: float | None = None,
+        price: float | None = None,
+        execution_mode: str | None = None,
+        order_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+        source_kind: str | None = None,
+        payload: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        movement_id: str | None = None,
+        movement_time: datetime | None = None,
+    ) -> MovementJournalRow:
+        row = MovementJournalRow(
+            movement_time=movement_time or _utcnow(),
+            id=movement_id,
+            workflow_run_id=workflow_run_id,
+            event_id=event_id,
+            correlation_id=correlation_id,
+            account_id=account_id,
+            symbol=symbol,
+            movement_type=movement_type,
+            status=status,
+            side=side,
+            quantity=quantity,
+            cash_delta_usd=cash_delta_usd,
+            notional_delta_usd=notional_delta_usd,
+            price=price,
+            execution_mode=execution_mode,
+            order_id=order_id,
+            request_id=request_id,
+            idempotency_key=idempotency_key,
+            source_kind=source_kind,
+            payload_json=payload or {},
+            metadata_json=metadata or {},
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def list_movement_journal_entries(
+        self,
+        *,
+        limit: int = 50,
+        correlation_id: str | None = None,
+        workflow_run_id: str | None = None,
+        symbol: str | None = None,
+        account_id: str | None = None,
+        movement_type: str | None = None,
+    ) -> list[MovementJournalRow]:
+        statement = select(MovementJournalRow)
+        if correlation_id:
+            statement = statement.where(MovementJournalRow.correlation_id == correlation_id)
+        if workflow_run_id:
+            statement = statement.where(MovementJournalRow.workflow_run_id == workflow_run_id)
+        if symbol:
+            statement = statement.where(MovementJournalRow.symbol == symbol.upper())
+        if account_id:
+            statement = statement.where(MovementJournalRow.account_id == account_id)
+        if movement_type:
+            statement = statement.where(MovementJournalRow.movement_type == movement_type)
+        statement = statement.order_by(desc(MovementJournalRow.movement_time)).limit(max(1, min(limit, 500)))
         return list(self.session.scalars(statement))
 
     def insert_system_error(

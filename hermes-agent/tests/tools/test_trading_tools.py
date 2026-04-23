@@ -1,4 +1,7 @@
 import json
+from pathlib import Path
+
+import yaml
 
 from model_tools import get_tool_definitions
 from tools.registry import registry
@@ -12,10 +15,6 @@ def test_trading_toolset_registers_expected_tools():
         "list_trade_candidates",
         "get_risk_approval",
         "get_portfolio_state",
-        "place_order",
-        "cancel_order",
-        "send_trade_alert",
-        "send_execution_update",
         "get_execution_status",
         "get_recent_tradingview_alerts",
         "get_pending_signal_events",
@@ -91,6 +90,24 @@ def test_execution_tools_only_exposed_to_expected_toolsets():
     assert "get_exchange_balances" not in research_names
     assert "send_daily_summary" in research_names
     assert "send_notification" not in strategy_names
+
+
+def test_orchestrator_toolset_covers_assigned_skill_requirements():
+    defs = get_tool_definitions(enabled_toolsets=["trading-orchestrator"], quiet_mode=True)
+    available = {tool["function"]["name"] for tool in defs}
+
+    root = Path(__file__).resolve().parents[3]
+    skill_paths = [
+        root / "teams/trading-desk/skills/workflow_routing.yaml",
+        root / "teams/trading-desk/skills/execution_requesting.yaml",
+    ]
+
+    required_tools = set()
+    for path in skill_paths:
+        data = yaml.safe_load(path.read_text()) or {}
+        required_tools.update(data.get("tools_required", []))
+
+    assert required_tools.issubset(available)
 
 
 def test_registry_dispatch_returns_recent_tradingview_alerts_envelope(monkeypatch, tmp_path):

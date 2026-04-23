@@ -1,13 +1,13 @@
 skill_id: incident_escalation
 name: Incident Escalation
 purpose: Escalate operational failures, policy violations, or abnormal market conditions to operators.
-agents_allowed: [orchestrator_trader]
+agents_allowed: [risk_manager, portfolio_monitor]
 tools_required: [send_notification]
 inputs: [incident_type, severity, context]
 outputs: [incident_alert]
 dependencies: [send_structured_alert]
 usage_example: "Escalate a direct-provider-call policy violation or execution adapter failure."
-limitations: [notification_backend_stub_until_replaced]
+limitations: [requires_operator_channel_mapping, requires_delivery_retry_policy]
 audit_logging_requirements: [log_incident_type, log_severity, log_delivery_status]
 description: Escalation wrapper for operational incidents.
 failure_modes: [notification_delivery_failure]

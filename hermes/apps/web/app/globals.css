@@ -260,6 +260,126 @@ h1 {
   border-color: rgba(255, 140, 140, 0.24);
 }
 
+.mission-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.mission-primary,
+.mission-rail {
+  display: grid;
+  gap: 18px;
+}
+
+.mission-hero h1 {
+  max-width: 13ch;
+}
+
+.mission-warning {
+  color: var(--warning);
+}
+
+.tv-card,
+.chart-card {
+  min-height: 100%;
+}
+
+.tv-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.tv-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(3, 8, 18, 0.85);
+}
+
+.sparkline {
+  width: 100%;
+  height: 84px;
+  margin: 8px 0 14px;
+  overflow: visible;
+}
+
+.mini-kpis,
+.mission-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.mini-kpi-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.position-map {
+  display: grid;
+  gap: 12px;
+}
+
+.position-row {
+  display: grid;
+  gap: 6px;
+}
+
+.bar-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(158, 178, 209, 0.12);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.task-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.task-lane {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(5, 15, 28, 0.46);
+}
+
+.trade-table {
+  display: grid;
+  gap: 10px;
+}
+
+.trade-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) repeat(3, minmax(70px, 0.7fr)) minmax(120px, 0.9fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.trade-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.mission-metrics .card {
+  min-height: 148px;
+}
+
 @media (max-width: 900px) {
   .topbar {
     flex-direction: column;
@@ -272,5 +392,13 @@ h1 {
 
   .nav {
     flex-wrap: wrap;
+  }
+
+  .mission-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-row {
+    grid-template-columns: 1fr 1fr;
   }
 }

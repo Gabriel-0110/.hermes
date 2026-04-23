@@ -28,6 +28,6 @@
 
 ## Deferred follow-up
 
-- Confirm any BitMart-specific spot vs. derivatives flags before extending beyond the current spot-oriented adapter
+- Confirm any BitMart-specific hedge-mode / position-side flags against live exchange responses beyond the current reduce-only futures close path
 - Validate any exchange-specific order and trade field nuances against live BitMart responses before adding richer execution analytics
 - Add persistence/event publishing if a later migration step requires execution records in TimescaleDB or Redis Streams

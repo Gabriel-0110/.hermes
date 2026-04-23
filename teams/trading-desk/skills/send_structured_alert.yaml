@@ -1,7 +1,7 @@
 skill_id: send_structured_alert
 name: Send Structured Alert
 purpose: Emit operator-facing alerts through internal notification tooling.
-agents_allowed: [orchestrator_trader, portfolio_monitor]
+agents_allowed: [portfolio_monitor, risk_manager]
 tools_required: [send_notification]
 inputs: [channel, severity, message, context]
 outputs: [delivery_status]

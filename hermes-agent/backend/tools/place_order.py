@@ -20,6 +20,9 @@ class PlaceOrderInput(BaseModel):
     client_order_id: str | None = Field(default=None, min_length=1, max_length=64)
     time_in_force: Literal["GTC", "IOC", "FOK"] | None = None
     post_only: bool = False
+    reduce_only: bool = False
+    close_only: bool = False
+    position_side: Literal["long", "short"] | None = None
     venue: str | None = Field(default=None, min_length=2, max_length=32)
     venues: list[str] | None = None
     approval_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -30,6 +33,8 @@ class PlaceOrderInput(BaseModel):
             raise ValueError("price is required for limit and stop-style orders")
         if self.order_type == "market" and self.post_only:
             raise ValueError("post_only is not supported for market orders")
+        if self.close_only:
+            self.reduce_only = True
         return self
 
 
@@ -43,6 +48,8 @@ def place_order(payload: dict | None = None) -> dict:
             amount=args.amount,
             price=args.price,
             client_order_id=args.client_order_id,
+            reduce_only=args.reduce_only,
+            position_side=args.position_side,
             approval_id=args.approval_id,
             metadata={"source": "backend.tools.place_order"},
         )
@@ -159,6 +166,8 @@ def place_order(payload: dict | None = None) -> dict:
             client_order_id=args.client_order_id,
             time_in_force=args.time_in_force,
             post_only=args.post_only,
+            reduce_only=args.reduce_only,
+            position_side=args.position_side,
         )
         data = order.model_dump(mode="json")
         outcome = ExecutionOutcome.from_result(

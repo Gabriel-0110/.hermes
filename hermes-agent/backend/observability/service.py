@@ -72,9 +72,17 @@ def _row_to_dict(row: Any, *, created_attr: str = "created_at") -> dict[str, Any
         payload[created_attr] = created_at.isoformat()
     if isinstance(updated_at, datetime):
         payload["updated_at"] = updated_at.isoformat()
+    record_payload = payload.pop("payload_json", None)
     metadata = payload.pop("metadata_json", None)
+    if record_payload is not None:
+        payload["payload"] = record_payload
     if metadata is not None:
         payload["metadata"] = metadata
+        if isinstance(metadata, dict):
+            if "symbol" not in payload and metadata.get("symbol") is not None:
+                payload["symbol"] = metadata.get("symbol")
+            if "payload" not in payload and metadata.get("payload") is not None:
+                payload["payload"] = metadata.get("payload")
     return payload
 
 
@@ -239,33 +247,96 @@ class ObservabilityService:
         status: str,
         event_type: str,
         context: AuditContext | None = None,
+        workflow_run_id: str | None = None,
+        event_id: str | None = None,
+        correlation_id: str | None = None,
+        workflow_name: str | None = None,
+        workflow_step: str | None = None,
         agent_name: str | None = None,
         tool_name: str | None = None,
+        symbol: str | None = None,
+        payload: dict[str, Any] | None = None,
         summarized_input: Any = None,
         summarized_output: Any = None,
         error_message: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         audit = _context_or_default(context)
+        merged_metadata = {**(audit.metadata or {}), **(metadata or {})}
+        if symbol is not None:
+            merged_metadata.setdefault("symbol", symbol)
+        if payload is not None:
+            merged_metadata.setdefault("payload", payload)
         row = self._with_repo(
             lambda repo: repo.insert_execution_event(
-                workflow_run_id=audit.workflow_run_id,
-                event_id=audit.event_id,
-                correlation_id=audit.correlation_id,
+                workflow_run_id=workflow_run_id or audit.workflow_run_id,
+                event_id=event_id or audit.event_id,
+                correlation_id=correlation_id or audit.correlation_id,
                 agent_name=agent_name or audit.agent_name,
-                workflow_name=audit.workflow_name,
-                workflow_step=audit.workflow_step,
+                workflow_name=workflow_name or audit.workflow_name,
+                workflow_step=workflow_step or audit.workflow_step,
                 tool_name=tool_name or audit.tool_name,
                 status=status,
                 event_type=event_type,
                 summarized_input=summarize_payload(summarized_input),
                 summarized_output=summarize_payload(summarized_output),
                 error_message=error_message,
-                metadata=metadata or audit.metadata or {},
+                metadata=merged_metadata,
                 created_at=_utcnow(),
             )
         )
         return _row_to_dict(row)
+
+    def record_movement(
+        self,
+        *,
+        movement_type: str,
+        status: str,
+        context: AuditContext | None = None,
+        workflow_run_id: str | None = None,
+        event_id: str | None = None,
+        correlation_id: str | None = None,
+        account_id: str | None = None,
+        symbol: str | None = None,
+        side: str | None = None,
+        quantity: float | None = None,
+        cash_delta_usd: float | None = None,
+        notional_delta_usd: float | None = None,
+        price: float | None = None,
+        execution_mode: str | None = None,
+        order_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+        source_kind: str | None = None,
+        payload: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        audit = _context_or_default(context)
+        row = self._with_repo(
+            lambda repo: repo.insert_movement_journal_entry(
+                movement_type=movement_type,
+                status=status,
+                workflow_run_id=workflow_run_id or audit.workflow_run_id,
+                event_id=event_id or audit.event_id,
+                correlation_id=correlation_id or audit.correlation_id,
+                account_id=account_id,
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                cash_delta_usd=cash_delta_usd,
+                notional_delta_usd=notional_delta_usd,
+                price=price,
+                execution_mode=execution_mode,
+                order_id=order_id,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                source_kind=source_kind or audit.agent_name,
+                payload=payload or {},
+                metadata={**(audit.metadata or {}), **(metadata or {})},
+                movement_time=_utcnow(),
+            )
+        )
+        return _row_to_dict(row, created_attr="movement_time")
 
     def record_system_error(
         self,
@@ -369,6 +440,28 @@ class ObservabilityService:
         )
         return [_row_to_dict(row) for row in rows]
 
+    def get_movement_history(
+        self,
+        *,
+        limit: int = 50,
+        correlation_id: str | None = None,
+        workflow_run_id: str | None = None,
+        symbol: str | None = None,
+        account_id: str | None = None,
+        movement_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = self._with_repo(
+            lambda repo: repo.list_movement_journal_entries(
+                limit=limit,
+                correlation_id=correlation_id,
+                workflow_run_id=workflow_run_id,
+                symbol=symbol,
+                account_id=account_id,
+                movement_type=movement_type,
+            )
+        )
+        return [_row_to_dict(row, created_attr="movement_time") for row in rows]
+
     def get_system_errors(
         self,
         *,
@@ -415,6 +508,9 @@ class ObservabilityService:
         for item in self.get_execution_event_history(limit=limit_per_source, correlation_id=correlation_id):
             timeline.append({"kind": "execution_event", **item, "timestamp": item["created_at"]})
 
+        for item in self.get_movement_history(limit=limit_per_source, correlation_id=correlation_id):
+            timeline.append({"kind": "movement", **item, "timestamp": item["movement_time"]})
+
         for item in self.get_system_errors(limit=limit_per_source, correlation_id=correlation_id):
             timeline.append({"kind": "system_error", **item, "timestamp": item["created_at"]})
 
@@ -431,6 +527,7 @@ class ObservabilityService:
         workflow_runs = self.list_recent_workflow_runs(limit=limit)
         failures = self.get_recent_failures(limit=limit)
         execution_events = self.get_execution_event_history(limit=limit)
+        movements = self.get_movement_history(limit=limit)
         notifications = self.get_recent_notifications(limit=limit)
         risk_rejections = [
             row
@@ -445,6 +542,7 @@ class ObservabilityService:
             "pending_or_in_progress": pending_or_running,
             "recent_failures": failures,
             "recent_execution_events": execution_events,
+            "recent_movements": movements,
             "recent_risk_rejections": risk_rejections,
             "recent_notifications": notifications,
         }

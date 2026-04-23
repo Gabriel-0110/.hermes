@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from decimal import ROUND_DOWN, Decimal
+from typing import Any, Union
 
 from backend.integrations.base import IntegrationError, MissingCredentialError
 from backend.integrations.execution.mode import (
@@ -29,12 +30,16 @@ class CCXTExecutionClient:
 
     provider = PROVIDER_PROFILES["bitmart"]
     exchange_id = "bitmart"
-    account_type = "spot"
+    # Hermes trading desk is built around BitMart derivatives / perpetual futures.
+    # Using spot here routes private CCXT calls to the wrong API namespace and can
+    # produce auth failures even when credentials are valid.
+    account_type = "swap"
 
     def __init__(self) -> None:
         self._api_key = os.getenv("BITMART_API_KEY", "").strip()
         self._secret = os.getenv("BITMART_SECRET", "").strip()
         self._memo = os.getenv("BITMART_MEMO", "").strip()
+        self._uid = os.getenv("BITMART_UID", "").strip()
         self._exchange: Any | None = None
         self._markets_loaded = False
 
@@ -55,6 +60,7 @@ class CCXTExecutionClient:
                 ("BITMART_API_KEY", self._api_key),
                 ("BITMART_SECRET", self._secret),
                 ("BITMART_MEMO", self._memo),
+                ("BITMART_UID", self._uid),
             )
             if not value
         ]
@@ -113,8 +119,11 @@ class CCXTExecutionClient:
                     "secret": self._secret,
                     "memo": self._memo,
                     "password": self._memo,
+                    "uid": self._uid,
                     "enableRateLimit": True,
                     "options": {"defaultType": self.account_type},
+                    "userAgent": self._USER_AGENT,
+                    "headers": {"User-Agent": self._USER_AGENT},
                 }
             )
         except Exception as exc:  # pragma: no cover - defensive against library-level init issues
@@ -149,18 +158,74 @@ class CCXTExecutionClient:
 
     _SPOT_BALANCE_URL = "https://api-cloud.bitmart.com/account/v1/wallet"
     _FUTURES_BALANCE_URL = "https://api-cloud-v2.bitmart.com/contract/private/assets-detail"
-    _REST_HEADERS_BASE = {"User-Agent": "hermes-bitmart-client/v1"}
+    _TRANSFER_URL = "https://api-cloud-v2.bitmart.com/account/v1/transfer-contract"
+    # IMPORTANT: Must be this exact UA — Cloudflare WAF returns HTTP 403 / error 1010 for
+    # generic User-Agents (e.g. python-requests, Go-http-client, CCXT default).
+    _USER_AGENT = "bitmart-skills/futures/v2026.3.23"
+    _REST_HEADERS_BASE = {"User-Agent": _USER_AGENT}
+
+    # Per-currency decimal precision for transfers. Extend this dict when adding
+    # non-USDT assets (e.g. BTC=8, ETH=8).
+    _TRANSFER_PRECISION: dict[str, int] = {"USDT": 2}
+
+    @staticmethod
+    def _floor_transfer_amount(amount: Union[str, float, Decimal], decimals: int = 2) -> str:
+        """Floor *amount* to *decimals* decimal places and return as a plain string.
+
+        Uses Decimal arithmetic throughout — no float multiplication — so values
+        like ``291.45585285`` are truncated exactly to ``"291.45"`` rather than
+        being subject to IEEE-754 rounding surprises.
+
+        Examples::
+
+            _floor_transfer_amount("291.45585285")  ->  "291.45"
+            _floor_transfer_amount(291.45999, 2)   ->  "291.45"
+            _floor_transfer_amount("300", 2)        ->  "300"
+            _floor_transfer_amount("200.50", 2)     ->  "200.50"
+        """
+        quant = Decimal(10) ** -decimals  # Decimal('0.01') for decimals=2
+        floored = Decimal(str(amount)).quantize(quant, rounding=ROUND_DOWN)
+        # Drop trailing ".00" for whole numbers; keep significant fractional zeros ("200.50").
+        if floored == floored.to_integral_value():
+            return str(floored.to_integral_value())
+        return str(floored)
 
     def _fetch_spot_balances_rest(self) -> list[ExecutionBalance]:
         """Fetch spot balances via the KEYED /account/v1/wallet endpoint (no signature required)."""
+        import time
+
         import requests  # already in requirements.txt
 
         headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
-        try:
-            resp = requests.get(self._SPOT_BALANCE_URL, headers=headers, timeout=15)
-            resp.raise_for_status()
-        except Exception as exc:
-            raise IntegrationError(f"BitMart spot balance REST request failed: {exc}") from exc
+        _MAX_ATTEMPTS = 4
+        _RETRY_STATUSES = {502, 503, 504}
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                resp = requests.get(self._SPOT_BALANCE_URL, headers=headers, timeout=15)
+            except Exception as exc:
+                if attempt < _MAX_ATTEMPTS:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise IntegrationError(f"BitMart spot balance REST request failed: {exc}") from exc
+
+            if resp.status_code == 403:
+                raise IntegrationError(
+                    f"BitMart spot balance blocked (HTTP 403 / Cloudflare WAF). "
+                    f"Check User-Agent header. Body: {resp.text[:200]}"
+                )
+            if resp.status_code in _RETRY_STATUSES:
+                if attempt < _MAX_ATTEMPTS:
+                    wait = 2 ** attempt
+                    logger.warning(
+                        "BitMart spot balance HTTP %d (attempt %d/%d) — retrying in %ds",
+                        resp.status_code, attempt, _MAX_ATTEMPTS, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise IntegrationError(
+                    f"BitMart spot balance HTTP {resp.status_code} after {_MAX_ATTEMPTS} attempts"
+                )
+            break
 
         body = resp.json()
         if body.get("code") != 1000:
@@ -186,14 +251,40 @@ class CCXTExecutionClient:
 
     def _fetch_futures_balances_rest(self) -> list[ExecutionBalance]:
         """Fetch futures balances via the KEYED /contract/private/assets-detail endpoint."""
+        import time
+
         import requests
 
         headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
-        try:
-            resp = requests.get(self._FUTURES_BALANCE_URL, headers=headers, timeout=15)
-            resp.raise_for_status()
-        except Exception as exc:
-            raise IntegrationError(f"BitMart futures balance REST request failed: {exc}") from exc
+        _MAX_ATTEMPTS = 4
+        _RETRY_STATUSES = {502, 503, 504}
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                resp = requests.get(self._FUTURES_BALANCE_URL, headers=headers, timeout=15)
+            except Exception as exc:
+                if attempt < _MAX_ATTEMPTS:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise IntegrationError(f"BitMart futures balance REST request failed: {exc}") from exc
+
+            if resp.status_code == 403:
+                raise IntegrationError(
+                    f"BitMart futures balance blocked (HTTP 403 / Cloudflare WAF). "
+                    f"Check User-Agent header. Body: {resp.text[:200]}"
+                )
+            if resp.status_code in _RETRY_STATUSES:
+                if attempt < _MAX_ATTEMPTS:
+                    wait = 2 ** attempt
+                    logger.warning(
+                        "BitMart futures balance HTTP %d (attempt %d/%d) — retrying in %ds",
+                        resp.status_code, attempt, _MAX_ATTEMPTS, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise IntegrationError(
+                    f"BitMart futures balance HTTP {resp.status_code} after {_MAX_ATTEMPTS} attempts"
+                )
+            break
 
         body = resp.json()
         if body.get("code") != 1000:
@@ -254,6 +345,8 @@ class CCXTExecutionClient:
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
     ) -> ExecutionOrder:
         self._ensure_markets_loaded()
         exchange = self._get_exchange()
@@ -264,6 +357,10 @@ class CCXTExecutionClient:
             params["timeInForce"] = time_in_force
         if post_only:
             params["postOnly"] = True
+        if reduce_only:
+            params["reduceOnly"] = True
+        if position_side:
+            params["positionSide"] = position_side.upper()
         # TODO(openclaw): confirm any BitMart-specific spot/futures flags that should be normalized here before widening exchange support.
         logger.info("Submitting BitMart order for %s %s %s", symbol, side, order_type)
         order = self._call_exchange(
@@ -298,6 +395,141 @@ class CCXTExecutionClient:
         exchange = self._get_exchange()
         orders = self._call_exchange("fetch_orders", exchange.fetch_orders, symbol, since, limit)
         return [self._normalize_order(order) for order in orders]
+
+    def transfer_funds(
+        self,
+        *,
+        amount: Union[str, float, Decimal],
+        direction: str,
+        currency: str = "USDT",
+    ) -> dict[str, Any]:
+        """Transfer funds between spot and futures accounts.
+
+        Args:
+            amount: Transfer amount as string, float, or Decimal
+                (e.g. ``"300"``, ``291.45585285``, or ``Decimal("291.45")``).  
+                Floored to the precision in ``_TRANSFER_PRECISION`` for the
+                given currency (USDT → 2 d.p. = min unit 0.01 USDT).  
+                Pass the raw available balance — this method floors it safely.
+            direction: Either ``"spot_to_contract"`` or ``"contract_to_spot"``.
+            currency: Only ``"USDT"`` is supported by BitMart.
+
+        Returns:
+            The parsed response dict from BitMart (code 1000 = success).
+
+        Raises:
+            IntegrationError: On HTTP error, Cloudflare block, or BitMart business error.
+        """
+        import hashlib
+        import hmac
+        import json
+        import time
+
+        import requests
+
+        self.require_credentials()
+        self._check_paper_mode_url()
+
+        if direction not in ("spot_to_contract", "contract_to_spot"):
+            raise IntegrationError(
+                f"Invalid transfer direction {direction!r}. "
+                "Must be 'spot_to_contract' or 'contract_to_spot'."
+            )
+
+        # Floor to BitMart-accepted precision using Decimal (no float math).
+        # _TRANSFER_PRECISION maps currency -> decimal places; USDT=2, others default 2.
+        decimals = self._TRANSFER_PRECISION.get(currency, 2)
+        amount_str = self._floor_transfer_amount(amount, decimals)
+        if Decimal(amount_str) <= 0:
+            raise IntegrationError(
+                f"Transfer amount {amount!r} floors to {amount_str!r} after applying "
+                f"{decimals}-decimal precision for {currency} — nothing to transfer. "
+                f"Minimum transferable amount is 0.{'0' * (decimals - 1)}1 {currency}."
+            )
+        body: dict[str, Any] = {"amount": amount_str, "currency": currency, "type": direction}
+        body_json = json.dumps(body, separators=(",", ":"))
+        ts = str(int(time.time() * 1000))
+        prehash = f"{ts}#{self._memo}#{body_json}"
+        signature = hmac.new(
+            self._secret.encode(), prehash.encode(), hashlib.sha256
+        ).hexdigest()
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": self._USER_AGENT,
+            "X-BM-KEY": self._api_key,
+            "X-BM-SIGN": signature,
+            "X-BM-TIMESTAMP": ts,
+        }
+        logger.info(
+            "BitMart transfer: %s %s USDT (%s)", direction, amount_str, currency
+        )
+
+        # Retry up to 5 times for transient server errors (502, 503, 504).
+        # Backoff: 2s, 4s, 8s, 16s between attempts (~30s total window).
+        # Signature timestamp must be regenerated on each attempt (replay protection).
+        _MAX_ATTEMPTS = 5
+        _RETRY_STATUSES = {502, 503, 504}
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            ts = str(int(time.time() * 1000))
+            prehash = f"{ts}#{self._memo}#{body_json}"
+            signature = hmac.new(
+                self._secret.encode(), prehash.encode(), hashlib.sha256
+            ).hexdigest()
+            headers["X-BM-SIGN"] = signature
+            headers["X-BM-TIMESTAMP"] = ts
+
+            try:
+                resp = requests.post(
+                    self._TRANSFER_URL, data=body_json, headers=headers, timeout=30
+                )
+            except Exception as exc:
+                if attempt < _MAX_ATTEMPTS:
+                    wait = 2 ** attempt  # 2, 4, 8, 16
+                    logger.warning(
+                        "BitMart transfer request failed (attempt %d/%d): %s — retrying in %ds",
+                        attempt, _MAX_ATTEMPTS, exc, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise IntegrationError(f"BitMart transfer request failed: {exc}") from exc
+
+            if resp.status_code == 403:
+                raise IntegrationError(
+                    f"BitMart transfer blocked (HTTP 403). "
+                    "This is a Cloudflare WAF rejection — check User-Agent and rate limits. "
+                    f"Body: {resp.text[:200]}"
+                )
+
+            if resp.status_code in _RETRY_STATUSES:
+                if attempt < _MAX_ATTEMPTS:
+                    wait = 2 ** attempt  # 2, 4, 8, 16
+                    logger.warning(
+                        "BitMart transfer HTTP %d (attempt %d/%d) — retrying in %ds",
+                        resp.status_code, attempt, _MAX_ATTEMPTS, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise IntegrationError(
+                    f"BitMart transfer HTTP {resp.status_code} after {_MAX_ATTEMPTS} attempts: {resp.text[:200]}"
+                )
+
+            # Non-retryable status — fall through to JSON parsing below.
+            break
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise IntegrationError(
+                f"BitMart transfer returned non-JSON (HTTP {resp.status_code}): {resp.text[:200]}"
+            ) from exc
+
+        if data.get("code") != 1000:
+            raise IntegrationError(
+                f"BitMart transfer error {data.get('code')}: {data.get('message')} "
+                f"(trace={data.get('trace')})"
+            )
+        logger.info("BitMart transfer successful: %s", data.get("data"))
+        return data
 
     def get_trade_history(
         self,

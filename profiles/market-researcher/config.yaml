@@ -301,6 +301,8 @@ streaming:
 platform_toolsets:
   cli:
   - hermes-cli
+  slack:
+  - hermes-slack
   discord:
   - hermes-discord
   whatsapp:
@@ -325,8 +327,4 @@ custom_providers:
   models:
     gemma4:e4b:
       context_length: 65536
-platforms:
-  telegram:
-    extra:
-      require_mention: true
-      free_response_chats: []
+platforms: {}

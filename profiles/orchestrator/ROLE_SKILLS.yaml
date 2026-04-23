@@ -6,11 +6,12 @@ allowed_tools:
 - list_trade_candidates
 - get_risk_approval
 - get_portfolio_state
-- send_notification
 - get_execution_status
+- get_recent_tradingview_alerts
+- get_pending_signal_events
+- get_tradingview_alert_context
 assigned_skills:
 - workflow_routing
 - decision_aggregation
 - execution_requesting
-- incident_escalation
 source_of_truth: /Users/openclaw/.hermes/teams/trading-desk/agents.yaml

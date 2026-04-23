@@ -307,6 +307,44 @@ class ExecutionEventRow(Base):
     )
 
 
+class MovementJournalRow(Base):
+    __tablename__ = "movement_journal"
+    __table_args__ = (
+        Index("ix_movement_journal_correlation_time", "correlation_id", "movement_time"),
+        Index("ix_movement_journal_run_time", "workflow_run_id", "movement_time"),
+        Index("ix_movement_journal_symbol_time", "symbol", "movement_time"),
+        Index("ix_movement_journal_account_time", "account_id", "movement_time"),
+        Index("ix_movement_journal_type_time", "movement_type", "movement_time"),
+    )
+
+    movement_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("move"))
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    account_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    symbol: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    movement_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cash_delta_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notional_delta_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    execution_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    order_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_kind: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payload_json: Mapped[dict] = mapped_column("payload", JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class SystemErrorRow(Base):
     __tablename__ = "system_errors"
     __table_args__ = (

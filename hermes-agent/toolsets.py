@@ -228,7 +228,7 @@ TOOLSETS = {
         "description": "Least-privilege toolset for the orchestrator_trader agent",
         "tools": [
             "list_trade_candidates", "get_risk_approval", "get_portfolio_state",
-            "place_order", "cancel_order", "send_trade_alert", "send_execution_update", "get_execution_status",
+            "get_execution_status",
             "get_recent_tradingview_alerts", "get_pending_signal_events",
             "get_tradingview_alert_context",
         ],
@@ -268,7 +268,7 @@ TOOLSETS = {
             "get_defi_open_interest", "get_defi_regime_summary",
             "get_social_sentiment", "get_onchain_wallet_data",
             "get_smart_money_flows", "get_portfolio_state", "get_exchange_balances", "get_open_orders", "get_execution_status", "get_crypto_prices",
-            "send_risk_alert",
+            "send_notification", "send_risk_alert",
             "get_recent_tradingview_alerts", "get_tradingview_alert_by_symbol",
             "get_tradingview_alert_context",
         ],

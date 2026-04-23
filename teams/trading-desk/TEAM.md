@@ -21,13 +21,15 @@ All desk agents must remain aligned with:
 - Orchestrator is the only agent allowed to own final execution state.
 - Supporting agents propose, score, validate, and monitor. They do not outrank the orchestrator.
 - Every agent must report in a way the orchestrator can merge without ambiguity.
+- The orchestrator owns decision composition, not operator notification delivery, reconciliation, or audit persistence.
+- Operator-facing alerts and incident escalation must be handled by risk, monitoring, or Mission Control paths.
 
 ## Team Topology
 
 1. orchestrator_trader
-   - main brain and execution authority
+   - main brain and final market/result decision authority
    - routes workflow and aggregates downstream agent outputs
-   - must request execution through internal workflow only
+   - emits execution requests through internal workflow only
 2. market_researcher
    - scans macro, trend, volatility, events, and sentiment
 3. strategy_agent

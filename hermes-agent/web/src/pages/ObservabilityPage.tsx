@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, Bell, Bot, Clock3, Search, Wrench } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRightLeft, Bell, Bot, Clock3, Search, Wrench } from "lucide-react";
 import { api } from "@/lib/api";
 import type {
   AgentDecisionRecord,
   EventTimelineItem,
   ExecutionEventRecord,
+  MovementRecord,
   NotificationAuditRecord,
   ObservabilityDashboardResponse,
   SystemErrorRecord,
@@ -13,6 +14,8 @@ import type {
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function prettyDate(value?: string | null): string {
   if (!value) return "—";
@@ -26,6 +29,57 @@ function prettyDate(value?: string | null): string {
 function truncate(value?: string | null, size = 140): string {
   if (!value) return "—";
   return value.length > size ? `${value.slice(0, size)}...` : value;
+}
+
+function formatNumber(value?: number | null, digits = 4): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(value);
+}
+
+function formatUsd(value?: number | null): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function timelineSummary(item: EventTimelineItem): string {
+  if (item.kind === "movement") {
+    const movement = item as EventTimelineItem & {
+      movement_type?: string;
+      symbol?: string;
+      quantity?: number;
+      cash_delta_usd?: number;
+      notional_delta_usd?: number;
+      execution_mode?: string;
+    };
+    return [
+      movement.movement_type,
+      movement.symbol,
+      movement.quantity !== undefined ? `qty=${formatNumber(movement.quantity)}` : null,
+      movement.cash_delta_usd !== undefined ? `cash=${formatUsd(movement.cash_delta_usd)}` : null,
+      movement.execution_mode ? `mode=${movement.execution_mode}` : null,
+    ].filter(Boolean).join(" • ");
+  }
+
+  if (item.kind === "execution_event") {
+    const execution = item as EventTimelineItem & { event_type?: string; symbol?: string };
+    return [execution.event_type, execution.symbol].filter(Boolean).join(" • ");
+  }
+
+  if (item.kind === "workflow_step") {
+    const step = item as EventTimelineItem & { workflow_step?: string; agent_name?: string };
+    return [step.workflow_step, step.agent_name].filter(Boolean).join(" • ");
+  }
+
+  if (item.kind === "agent_decision") {
+    const decision = item as EventTimelineItem & { agent_name?: string; decision?: string };
+    return [decision.agent_name, decision.decision].filter(Boolean).join(" • ");
+  }
+
+  return truncate(JSON.stringify(item), 220);
 }
 
 function StatusBadge({ value }: { value: string }) {
@@ -103,6 +157,7 @@ export default function ObservabilityPage() {
   const [toolCalls, setToolCalls] = useState<ToolCallRecord[]>([]);
   const [decisions, setDecisions] = useState<AgentDecisionRecord[]>([]);
   const [executionEvents, setExecutionEvents] = useState<ExecutionEventRecord[]>([]);
+  const [movements, setMovements] = useState<MovementRecord[]>([]);
   const [systemErrors, setSystemErrors] = useState<SystemErrorRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationAuditRecord[]>([]);
   const [timeline, setTimeline] = useState<EventTimelineItem[]>([]);
@@ -115,12 +170,13 @@ export default function ObservabilityPage() {
 
       const firstRun = snapshot.recent_workflow_runs[0];
       if (firstRun?.id) {
-        const [detail, nextToolCalls, nextDecisions, nextExecutionEvents, nextSystemErrors, nextNotifications] =
+        const [detail, nextToolCalls, nextDecisions, nextExecutionEvents, nextMovements, nextSystemErrors, nextNotifications] =
           await Promise.all([
             api.getWorkflowRun(firstRun.id),
             api.getToolCalls({ workflow_run_id: firstRun.id, limit: 10 }),
             api.getAgentDecisions({ workflow_run_id: firstRun.id, limit: 10 }),
             api.getExecutionEvents({ workflow_run_id: firstRun.id, limit: 10 }),
+            api.getMovements({ workflow_run_id: firstRun.id, limit: 10 }),
             api.getSystemErrors({ workflow_run_id: firstRun.id, limit: 10 }),
             api.getNotifications(10),
           ]);
@@ -128,21 +184,42 @@ export default function ObservabilityPage() {
         setToolCalls(nextToolCalls);
         setDecisions(nextDecisions);
         setExecutionEvents(nextExecutionEvents);
+        setMovements(nextMovements);
         setSystemErrors(nextSystemErrors);
         setNotifications(nextNotifications);
         if (firstRun.correlation_id) {
           setCorrelationId(firstRun.correlation_id);
           setTimeline(await api.getEventTimeline(firstRun.correlation_id));
         }
+      } else {
+        setMovements(snapshot.recent_movements);
       }
     };
 
     load().catch(() => {});
   }, []);
 
+  async function loadCorrelationDrilldown(rawCorrelationId: string) {
+    const normalized = rawCorrelationId.trim();
+    if (!normalized) return;
+    const [nextTimeline, nextMovements, nextExecutionEvents, nextDecisions, nextToolCalls, nextSystemErrors] = await Promise.all([
+      api.getEventTimeline(normalized),
+      api.getMovements({ correlation_id: normalized, limit: 25 }),
+      api.getExecutionEvents({ correlation_id: normalized, limit: 25 }),
+      api.getAgentDecisions({ correlation_id: normalized, limit: 25 }),
+      api.getToolCalls({ correlation_id: normalized, limit: 25 }),
+      api.getSystemErrors({ correlation_id: normalized, limit: 25 }),
+    ]);
+    setTimeline(nextTimeline);
+    setMovements(nextMovements);
+    setExecutionEvents(nextExecutionEvents);
+    setDecisions(nextDecisions);
+    setToolCalls(nextToolCalls);
+    setSystemErrors(nextSystemErrors);
+  }
+
   async function loadTimeline() {
-    if (!correlationId.trim()) return;
-    setTimeline(await api.getEventTimeline(correlationId.trim()));
+    await loadCorrelationDrilldown(correlationId);
   }
 
   if (!dashboard) {
@@ -156,10 +233,11 @@ export default function ObservabilityPage() {
   const workflowRuns = dashboard.recent_workflow_runs;
   const pending = dashboard.pending_or_in_progress;
   const failures = dashboard.recent_failures;
+  const movementRows = movements.length > 0 ? movements : dashboard.recent_movements;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Recent Workflow Runs</CardTitle></CardHeader>
           <CardContent><div className="text-3xl font-display">{workflowRuns.length}</div></CardContent>
@@ -172,6 +250,10 @@ export default function ObservabilityPage() {
           <CardHeader><CardTitle className="text-sm font-medium">Recent Failures</CardTitle></CardHeader>
           <CardContent><div className="text-3xl font-display">{failures.length}</div></CardContent>
         </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-sm font-medium">Recent Movements</CardTitle></CardHeader>
+          <CardContent><div className="text-3xl font-display">{dashboard.recent_movements.length}</div></CardContent>
+        </Card>
       </div>
 
       <SectionTable
@@ -180,7 +262,23 @@ export default function ObservabilityPage() {
         rows={workflowRuns}
         columns={[
           { key: "id", label: "Run" },
-          { key: "correlation_id", label: "Correlation" },
+          {
+            key: "correlation_id",
+            label: "Correlation",
+            render: (row) => row.correlation_id ? (
+              <button
+                type="button"
+                className="font-mono-ui text-xs text-foreground underline-offset-4 hover:underline"
+                onClick={() => {
+                  const nextCorrelationId = String(row.correlation_id);
+                  setCorrelationId(nextCorrelationId);
+                  void loadCorrelationDrilldown(nextCorrelationId);
+                }}
+              >
+                {String(row.correlation_id)}
+              </button>
+            ) : "—",
+          },
           { key: "status", label: "Status", render: (row) => <StatusBadge value={String(row.status ?? "unknown")} /> },
           { key: "created_at", label: "Started", render: (row) => prettyDate(String(row.created_at ?? "")) },
           { key: "summarized_output", label: "Output", render: (row) => <span className="text-muted-foreground">{truncate(String(row.summarized_output ?? ""))}</span> },
@@ -221,11 +319,28 @@ export default function ObservabilityPage() {
           rows={executionEvents}
           columns={[
             { key: "event_type", label: "Event" },
+            { key: "symbol", label: "Symbol" },
             { key: "status", label: "Status", render: (row) => <StatusBadge value={String(row.status ?? "unknown")} /> },
             { key: "created_at", label: "Time", render: (row) => prettyDate(String(row.created_at ?? "")) },
             { key: "summarized_output", label: "Summary", render: (row) => truncate(String(row.summarized_output ?? "")) },
           ]}
         />
+        <SectionTable
+          title="Movement Journal"
+          icon={ArrowRightLeft}
+          rows={movementRows}
+          columns={[
+            { key: "movement_type", label: "Movement" },
+            { key: "symbol", label: "Symbol" },
+            { key: "status", label: "Status", render: (row) => <StatusBadge value={String(row.status ?? "unknown")} /> },
+            { key: "quantity", label: "Qty", render: (row) => formatNumber(row.quantity as number | null | undefined) },
+            { key: "cash_delta_usd", label: "Cash Δ", render: (row) => formatUsd(row.cash_delta_usd as number | null | undefined) },
+            { key: "movement_time", label: "Time", render: (row) => prettyDate(String(row.movement_time ?? "")) },
+          ]}
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
         <SectionTable
           title="Risk Rejections"
           icon={AlertTriangle}
@@ -285,19 +400,19 @@ export default function ObservabilityPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex gap-3">
-            <input
+            <Input
               value={correlationId}
               onChange={(event) => setCorrelationId(event.target.value)}
-              className="w-full border border-border bg-background px-3 py-2 font-mono-ui text-sm"
+              className="font-mono-ui"
               placeholder="corr_... or alert/workflow correlation id"
             />
-            <button
+            <Button
               type="button"
               onClick={() => { void loadTimeline(); }}
-              className="border border-border px-4 py-2 font-display text-xs uppercase tracking-[0.12em]"
+              variant="outline"
             >
               Load
-            </button>
+            </Button>
           </div>
           <div className="grid gap-3">
             {timeline.length === 0 && <div className="text-sm text-muted-foreground">No timeline loaded.</div>}
@@ -310,7 +425,8 @@ export default function ObservabilityPage() {
                   </div>
                   <span className="text-xs text-muted-foreground">{prettyDate(String(item.timestamp ?? ""))}</span>
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground">{truncate(JSON.stringify(item), 320)}</div>
+                <div className="mt-2 text-sm text-muted-foreground">{timelineSummary(item)}</div>
+                <div className="mt-2 text-xs text-muted-foreground/80">{truncate(JSON.stringify(item), 320)}</div>
               </div>
             ))}
           </div>

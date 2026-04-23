@@ -1,8 +1,11 @@
+import json
 from types import SimpleNamespace
 
 import backend.tools.get_exchange_balances as balances_module
 import backend.tools.place_order as place_order_module
+import backend.integrations.execution.multi_venue as multi_venue_module
 from backend.integrations.execution.normalization import execution_order_payload, normalize_ccxt_order
+from backend.integrations.execution.multi_venue import VenueExecutionClient
 from backend.models import ExecutionOrder
 from backend.tools.get_exchange_balances import get_exchange_balances
 from backend.tools.place_order import place_order
@@ -88,6 +91,7 @@ def test_place_order_uses_smart_selected_venue(monkeypatch):
                 side=kwargs["side"],
                 order_type=kwargs["order_type"],
                 amount=kwargs["amount"],
+                reduce_only=kwargs.get("reduce_only"),
                 status="open",
             )
 
@@ -132,6 +136,137 @@ def test_place_order_uses_smart_selected_venue(monkeypatch):
     assert payload["data"]["execution_result"]["execution_mode"] == "live"
     assert payload["data"]["execution_result"]["payload"]["exchange_order"]["exchange"] == "BINANCE"
     assert payload["data"]["execution_result"]["payload"]["exchange_order"]["routing"]["selected_venue"] == "binance"
+
+
+def test_place_order_passes_reduce_only_futures_close_flags(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeVenueClient:
+        def __init__(self, venue):
+            assert venue == "bitmart"
+            self.provider = SimpleNamespace(name="BITMART")
+            self.credential_env_names = ["BITMART_API_KEY", "BITMART_SECRET", "BITMART_MEMO"]
+            self.configured = True
+
+        def place_order(self, **kwargs):
+            captured.update(kwargs)
+            return ExecutionOrder(
+                order_id="ord_close_123",
+                exchange="BITMART",
+                symbol=kwargs["symbol"],
+                side=kwargs["side"],
+                order_type=kwargs["order_type"],
+                amount=kwargs["amount"],
+                reduce_only=kwargs.get("reduce_only"),
+                status="open",
+            )
+
+    monkeypatch.setattr(
+        place_order_module,
+        "select_order_venue",
+        lambda **kwargs: {
+            "mode": "single_venue",
+            "selected_venue": "bitmart",
+            "selected_provider": "BITMART",
+            "considered": [{"venue": "bitmart", "score": 0.0}],
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
+
+    payload = place_order(
+        {
+            "symbol": "BTCUSDT",
+            "side": "sell",
+            "order_type": "market",
+            "amount": 1,
+            "close_only": True,
+            "position_side": "long",
+        }
+    )
+
+    assert payload["meta"]["ok"] is True
+    assert captured["reduce_only"] is True
+    assert captured["position_side"] == "long"
+    assert payload["data"]["reduce_only"] is True
+    assert payload["data"]["execution_request"]["reduce_only"] is True
+    assert payload["data"]["execution_request"]["position_side"] == "long"
+
+
+def test_bitmart_swap_orders_use_direct_rest_submission(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+
+    client = VenueExecutionClient("bitmart")
+    assert client.account_type == "swap"
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":231116359426639,"price":"market price"}}'
+
+        def json(self):
+            return {
+                "code": 1000,
+                "message": "Ok",
+                "trace": "trace-1",
+                "data": {"order_id": 231116359426639, "price": "market price"},
+            }
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["body"] = data
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
+
+    order = client.place_order(
+        symbol="BTCUSDT",
+        side="sell",
+        order_type="market",
+        amount=1,
+        reduce_only=True,
+        position_side="long",
+    )
+
+    body = json.loads(captured["body"])
+    assert captured["url"].endswith("/contract/private/submit-order")
+    assert body["symbol"] == "BTCUSDT"
+    assert body["type"] == "market"
+    assert body["side"] == 3
+    assert body["size"] == 1
+    assert "open_type" not in body
+    assert order.order_id == "231116359426639"
+    assert order.reduce_only is True
+    assert order.status == "submitted"
 
 
 def test_normalize_ccxt_order_maps_common_bitmart_fields() -> None:
