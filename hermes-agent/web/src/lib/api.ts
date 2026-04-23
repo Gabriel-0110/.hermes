@@ -192,8 +192,23 @@ export interface PlatformStatus {
   updated_at: string;
 }
 
+export interface GatewayStatus {
+  gateway_exit_reason: string | null;
+  gateway_pid: number | null;
+  gateway_platforms: Record<string, PlatformStatus>;
+  gateway_running: boolean;
+  gateway_state: string | null;
+  gateway_updated_at: string | null;
+  is_default: boolean;
+  model: string | null;
+  name: string;
+  path: string;
+  provider: string | null;
+}
+
 export interface StatusResponse {
   active_sessions: number;
+  active_profile: string;
   config_path: string;
   config_version: number;
   env_path: string;
@@ -203,6 +218,7 @@ export interface StatusResponse {
   gateway_running: boolean;
   gateway_state: string | null;
   gateway_updated_at: string | null;
+  gateways: GatewayStatus[];
   hermes_home: string;
   latest_config_version: number;
   release_date: string;

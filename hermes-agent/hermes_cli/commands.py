@@ -134,9 +134,9 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills"),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
                aliases=("reload_mcp",)),
-    CommandDef("browser", "Connect browser tools to your live Chrome via CDP", "Tools & Skills",
-               cli_only=True, args_hint="[connect|disconnect|status]",
-               subcommands=("connect", "disconnect", "status")),
+    CommandDef("browser", "Manage persistent shared browser sessions", "Tools & Skills",
+               args_hint="[start|stop|status|open|handoff|resume|snapshot] [session] [url]",
+               subcommands=("start", "stop", "status", "open", "handoff", "resume", "snapshot")),
     CommandDef("plugins", "List installed plugins and their status",
                "Tools & Skills", cli_only=True),
 

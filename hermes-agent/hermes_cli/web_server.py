@@ -277,43 +277,88 @@ class EnvVarReveal(BaseModel):
     key: str
 
 
-@app.get("/api/status")
-async def get_status():
-    current_ver, latest_ver = check_config_version()
+def _with_hermes_home(home: Path, func):
+    """Run a HERMES_HOME-scoped status reader without leaking env changes."""
+    previous = os.environ.get("HERMES_HOME")
+    os.environ["HERMES_HOME"] = str(home)
+    try:
+        return func()
+    finally:
+        if previous is None:
+            os.environ.pop("HERMES_HOME", None)
+        else:
+            os.environ["HERMES_HOME"] = previous
 
-    gateway_pid = get_running_pid()
+
+def _gateway_status_for_profile(profile) -> dict:
+    """Return live gateway status for a profile, ignoring stale runtime files."""
+    def _read() -> tuple[Optional[int], Optional[dict]]:
+        return get_running_pid(), read_runtime_status()
+
+    gateway_pid, runtime = _with_hermes_home(profile.path, _read)
     gateway_running = gateway_pid is not None
 
     gateway_state = None
     gateway_platforms: dict = {}
     gateway_exit_reason = None
     gateway_updated_at = None
-    configured_gateway_platforms: set[str] | None = None
-    try:
-        from gateway.config import load_gateway_config
 
-        gateway_config = load_gateway_config()
-        configured_gateway_platforms = {
-            platform.value for platform in gateway_config.get_connected_platforms()
-        }
-    except Exception:
-        configured_gateway_platforms = None
-
-    runtime = read_runtime_status()
     if runtime:
         gateway_state = runtime.get("gateway_state")
         gateway_platforms = runtime.get("platforms") or {}
-        if configured_gateway_platforms is not None:
-            gateway_platforms = {
-                key: value
-                for key, value in gateway_platforms.items()
-                if key in configured_gateway_platforms
-            }
         gateway_exit_reason = runtime.get("exit_reason")
         gateway_updated_at = runtime.get("updated_at")
-        if not gateway_running:
-            gateway_state = gateway_state if gateway_state in ("stopped", "startup_failed") else "stopped"
-            gateway_platforms = {}
+
+    if not gateway_running:
+        gateway_state = gateway_state if gateway_state in ("stopped", "startup_failed") else "stopped"
+        gateway_platforms = {}
+
+    return {
+        "name": profile.name,
+        "path": str(profile.path),
+        "is_default": profile.is_default,
+        "model": profile.model,
+        "provider": profile.provider,
+        "gateway_running": gateway_running,
+        "gateway_pid": gateway_pid,
+        "gateway_state": gateway_state,
+        "gateway_platforms": gateway_platforms,
+        "gateway_exit_reason": gateway_exit_reason,
+        "gateway_updated_at": gateway_updated_at,
+    }
+
+
+@app.get("/api/status")
+async def get_status():
+    current_ver, latest_ver = check_config_version()
+
+    try:
+        from hermes_cli.profiles import get_active_profile_name, list_profiles
+
+        active_profile_name = get_active_profile_name()
+        gateways = [_gateway_status_for_profile(profile) for profile in list_profiles()]
+    except Exception:
+        active_profile_name = "default"
+        gateway_pid = get_running_pid()
+        runtime = read_runtime_status() or {}
+        gateways = [{
+            "name": active_profile_name,
+            "path": str(get_hermes_home()),
+            "is_default": active_profile_name == "default",
+            "model": None,
+            "provider": None,
+            "gateway_running": gateway_pid is not None,
+            "gateway_pid": gateway_pid,
+            "gateway_state": runtime.get("gateway_state"),
+            "gateway_platforms": runtime.get("platforms") or {},
+            "gateway_exit_reason": runtime.get("exit_reason"),
+            "gateway_updated_at": runtime.get("updated_at"),
+        }]
+
+    active_gateway = next(
+        (gateway for gateway in gateways if gateway["name"] == active_profile_name),
+        gateways[0] if gateways else None,
+    )
 
     active_sessions = 0
     try:
@@ -340,12 +385,14 @@ async def get_status():
         "env_path": str(get_env_path()),
         "config_version": current_ver,
         "latest_config_version": latest_ver,
-        "gateway_running": gateway_running,
-        "gateway_pid": gateway_pid,
-        "gateway_state": gateway_state,
-        "gateway_platforms": gateway_platforms,
-        "gateway_exit_reason": gateway_exit_reason,
-        "gateway_updated_at": gateway_updated_at,
+        "active_profile": active_profile_name,
+        "gateways": gateways,
+        "gateway_running": active_gateway["gateway_running"] if active_gateway else False,
+        "gateway_pid": active_gateway["gateway_pid"] if active_gateway else None,
+        "gateway_state": active_gateway["gateway_state"] if active_gateway else None,
+        "gateway_platforms": active_gateway["gateway_platforms"] if active_gateway else {},
+        "gateway_exit_reason": active_gateway["gateway_exit_reason"] if active_gateway else None,
+        "gateway_updated_at": active_gateway["gateway_updated_at"] if active_gateway else None,
         "active_sessions": active_sessions,
     }
 

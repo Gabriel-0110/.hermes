@@ -2751,6 +2751,9 @@ class GatewayRunner:
         if canonical == "reload-mcp":
             return await self._handle_reload_mcp_command(event)
 
+        if canonical == "browser":
+            return await self._handle_browser_command(event)
+
         if canonical == "approve":
             return await self._handle_approve_command(event)
 
@@ -6388,6 +6391,68 @@ class GatewayRunner:
         except Exception as e:
             logger.warning("MCP reload failed: %s", e)
             return f"❌ MCP reload failed: {e}"
+
+    async def _handle_browser_command(self, event: MessageEvent) -> str:
+        """Handle /browser commands for persistent shared browser sessions."""
+        args = event.get_command_args().strip()
+        parts = args.split()
+        action = (parts[0].lower() if parts else "status")
+        session = parts[1] if len(parts) > 1 else "exchange-main"
+        url = " ".join(parts[2:]).strip() if len(parts) > 2 else ""
+
+        if action == "open":
+            if not url:
+                return "Usage: `/browser open <session> <url>`"
+        elif action in {"start", "stop", "status", "handoff", "resume", "snapshot"}:
+            pass
+        else:
+            return (
+                "Usage: `/browser start|stop|status|open|handoff|resume|snapshot <session> [url]`\n"
+                "Example: `/browser open bitmart-main https://www.bitmart.com/`"
+            )
+
+        loop = asyncio.get_event_loop()
+
+        def _run_browser_action():
+            from tools.shared_browser_tool import shared_browser_action
+
+            if action == "open":
+                return shared_browser_action("open", session=session, url=url)
+            return shared_browser_action(action, session=session)
+
+        try:
+            raw = await loop.run_in_executor(None, _run_browser_action)
+            result = json.loads(raw)
+        except Exception as e:
+            logger.warning("Shared browser command failed: %s", e, exc_info=True)
+            return f"Browser command failed: {e}"
+
+        session_meta = result.get("session") or {}
+        lines = [
+            f"**Browser `{session}`: {action}**",
+            f"Mode: `{session_meta.get('current_mode', 'unknown')}`",
+            f"URL: {session_meta.get('current_url') or '(blank)'}",
+            f"Title: {session_meta.get('page_title') or '(untitled)'}",
+        ]
+        if session_meta.get("profile_dir"):
+            lines.append(f"Profile: `{session_meta['profile_dir']}`")
+        if result.get("screenshot_path") or session_meta.get("latest_screenshot_path"):
+            screenshot_path = result.get("screenshot_path") or session_meta.get("latest_screenshot_path")
+            lines.append(f"Screenshot: `{screenshot_path}`")
+            lines.append(f"MEDIA:{screenshot_path}")
+        if result.get("handoff_required"):
+            lines.append(
+                "\nAuthentication/security verification detected. Automation is paused in `human` mode. "
+                "Complete login, CAPTCHA, 2FA, or approval in the visible browser, then run "
+                f"`/browser resume {session}`."
+            )
+        if not result.get("success"):
+            lines.append(f"\nError: {result.get('error') or result.get('message') or 'unknown error'}")
+        elif action == "handoff":
+            lines.append(f"\nManual control is active. Hermes will not send actions until `/browser resume {session}`.")
+        elif action == "resume":
+            lines.append("\nAgent control resumed on the same persistent browser profile.")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # /approve & /deny — explicit dangerous-command approval

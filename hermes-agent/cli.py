@@ -5990,11 +5990,44 @@ class HermesCLI:
             return False
 
     def _handle_browser_command(self, cmd: str):
-        """Handle /browser connect|disconnect|status — manage live Chrome CDP connection."""
+        """Handle legacy CDP browser commands and shared browser sessions."""
         import platform as _plat
 
         parts = cmd.strip().split(None, 1)
         sub = parts[1].lower().strip() if len(parts) > 1 else "status"
+        first = sub.split()[0] if sub else "status"
+
+        if first in {"start", "stop", "open", "handoff", "resume", "snapshot"}:
+            action_parts = cmd.strip().split()
+            action = action_parts[1] if len(action_parts) > 1 else "status"
+            session = action_parts[2] if len(action_parts) > 2 else "exchange-main"
+            url = " ".join(action_parts[3:]).strip() if len(action_parts) > 3 else ""
+            try:
+                from tools.shared_browser_tool import shared_browser_action
+                raw = (
+                    shared_browser_action("open", session=session, url=url)
+                    if action == "open"
+                    else shared_browser_action(action, session=session)
+                )
+                data = json.loads(raw)
+                meta = data.get("session") or {}
+                print()
+                print(f"🌐 Shared browser `{session}`: {action}")
+                print(f"   Mode: {meta.get('current_mode', 'unknown')}")
+                print(f"   URL: {meta.get('current_url') or '(blank)'}")
+                print(f"   Title: {meta.get('page_title') or '(untitled)'}")
+                if meta.get("profile_dir"):
+                    print(f"   Profile: {meta['profile_dir']}")
+                if data.get("screenshot_path") or meta.get("latest_screenshot_path"):
+                    print(f"   Screenshot: {data.get('screenshot_path') or meta.get('latest_screenshot_path')}")
+                if data.get("handoff_required"):
+                    print("   Handoff required: complete auth manually, then run /browser resume <session>")
+                if not data.get("success"):
+                    print(f"   Error: {data.get('error') or data.get('message') or 'unknown error'}")
+                print()
+            except Exception as e:
+                print(f"\nBrowser command failed: {e}\n")
+            return
 
         _DEFAULT_CDP = "http://localhost:9222"
         current = os.environ.get("BROWSER_CDP_URL", "").strip()

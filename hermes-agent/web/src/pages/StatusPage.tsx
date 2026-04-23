@@ -10,7 +10,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { PlatformStatus, SessionInfo, StatusResponse } from "@/lib/api";
+import type { GatewayStatus, PlatformStatus, SessionInfo, StatusResponse } from "@/lib/api";
 import { timeAgo, isoTimeAgo } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,14 @@ function gatewayBadge(status: StatusResponse) {
   const info = status.gateway_state ? GATEWAY_STATE_DISPLAY[status.gateway_state] : null;
   if (info) return info;
   return status.gateway_running
+    ? { badge: "success" as const, label: "Running" }
+    : { badge: "outline" as const, label: "Off" };
+}
+
+function gatewayStatusBadge(gateway: GatewayStatus) {
+  const info = gateway.gateway_state ? GATEWAY_STATE_DISPLAY[gateway.gateway_state] : null;
+  if (info) return info;
+  return gateway.gateway_running
     ? { badge: "success" as const, label: "Running" }
     : { badge: "outline" as const, label: "Off" };
 }
@@ -90,24 +98,43 @@ export default function StatusPage() {
     },
   ];
 
+  const gateways = status.gateways?.length ? status.gateways : [{
+    gateway_exit_reason: status.gateway_exit_reason,
+    gateway_pid: status.gateway_pid,
+    gateway_platforms: status.gateway_platforms,
+    gateway_running: status.gateway_running,
+    gateway_state: status.gateway_state,
+    gateway_updated_at: status.gateway_updated_at,
+    is_default: status.active_profile === "default",
+    model: null,
+    name: status.active_profile ?? "default",
+    path: status.hermes_home,
+    provider: null,
+  }];
   const platforms = Object.entries(status.gateway_platforms ?? {});
   const activeSessions = sessions.filter((s) => s.is_active);
   const recentSessions = sessions.filter((s) => !s.is_active).slice(0, 5);
 
   // Collect alerts that need attention
   const alerts: { message: string; detail?: string }[] = [];
-  if (status.gateway_state === "startup_failed") {
+  const unhealthyGateways = gateways.filter((gateway) => (
+    gateway.gateway_state === "startup_failed" || !gateway.gateway_running
+  ));
+  for (const gateway of unhealthyGateways) {
     alerts.push({
-      message: "Gateway failed to start",
-      detail: status.gateway_exit_reason ?? undefined,
+      message: `${gateway.name} gateway ${gateway.gateway_state === "startup_failed" ? "failed to start" : "is not running"}`,
+      detail: gateway.gateway_exit_reason ?? undefined,
     });
   }
-  const failedPlatforms = platforms.filter(([, info]) => info.state === "fatal" || info.state === "disconnected");
-  for (const [name, info] of failedPlatforms) {
-    alerts.push({
-      message: `${name.charAt(0).toUpperCase() + name.slice(1)} ${info.state === "fatal" ? "error" : "disconnected"}`,
-      detail: info.error_message ?? undefined,
-    });
+  for (const gateway of gateways) {
+    const gatewayPlatforms = Object.entries(gateway.gateway_platforms ?? {});
+    const failedPlatforms = gatewayPlatforms.filter(([, info]) => info.state === "fatal" || info.state === "disconnected");
+    for (const [name, info] of failedPlatforms) {
+      alerts.push({
+        message: `${gateway.name} ${name} ${info.state === "fatal" ? "error" : "disconnected"}`,
+        detail: info.error_message ?? undefined,
+      });
+    }
   }
 
 
@@ -158,6 +185,10 @@ export default function StatusPage() {
 
       {platforms.length > 0 && (
         <PlatformsCard platforms={platforms} />
+      )}
+
+      {gateways.length > 0 && (
+        <GatewaysCard activeProfile={status.active_profile} gateways={gateways} />
       )}
 
       {activeSessions.length > 0 && (
@@ -237,6 +268,77 @@ export default function StatusPage() {
   );
 }
 
+function GatewaysCard({ activeProfile, gateways }: GatewaysCardProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Radio className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Agent Gateways</CardTitle>
+        </div>
+      </CardHeader>
+
+      <CardContent className="grid gap-3">
+        {gateways.map((gateway) => {
+          const display = gatewayStatusBadge(gateway);
+          const gatewayPlatforms = Object.entries(gateway.gateway_platforms ?? {});
+          const IconComponent = gateway.gateway_running ? Wifi : AlertTriangle;
+
+          return (
+            <div
+              key={gateway.name}
+              className="flex items-center justify-between gap-4 border border-border p-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <IconComponent className={`h-4 w-4 shrink-0 ${
+                  gateway.gateway_running ? "text-success" : "text-warning"
+                }`} />
+
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{gateway.name}</span>
+
+                    {gateway.name === activeProfile && (
+                      <Badge variant="outline" className="text-[10px]">Active</Badge>
+                    )}
+
+                    {gateway.gateway_pid && (
+                      <span className="text-xs text-muted-foreground">PID {gateway.gateway_pid}</span>
+                    )}
+                  </div>
+
+                  <span className="truncate text-xs text-muted-foreground">
+                    {gatewayPlatforms.length > 0
+                      ? gatewayPlatforms.map(([name, info]) => `${name}: ${info.state}`).join(" · ")
+                      : "No connected platforms"}
+                  </span>
+
+                  {gateway.gateway_updated_at && (
+                    <span className="text-xs text-muted-foreground">
+                      Last update: {isoTimeAgo(gateway.gateway_updated_at)}
+                    </span>
+                  )}
+
+                  {gateway.gateway_exit_reason && (
+                    <span className="text-xs text-destructive">{gateway.gateway_exit_reason}</span>
+                  )}
+                </div>
+              </div>
+
+              <Badge variant={display.badge}>
+                {display.badge === "success" && (
+                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+                )}
+                {display.label}
+              </Badge>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PlatformsCard({ platforms }: PlatformsCardProps) {
   return (
     <Card>
@@ -300,4 +402,9 @@ function PlatformsCard({ platforms }: PlatformsCardProps) {
 
 interface PlatformsCardProps {
   platforms: [string, PlatformStatus][];
+}
+
+interface GatewaysCardProps {
+  activeProfile: string;
+  gateways: GatewayStatus[];
 }

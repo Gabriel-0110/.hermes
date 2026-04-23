@@ -22,6 +22,7 @@ pydantic-ai-slim>=1.83.0,<2
 pydantic-graph>=1.83.0,<2
 PyJWT[crypto]
 debugpy
+playwright>=1.51.0,<2
 
 # Web tools
 firecrawl-py
