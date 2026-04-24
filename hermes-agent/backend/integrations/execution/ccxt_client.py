@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from typing import Any, Union
 
+import requests
+
 from backend.integrations.base import IntegrationError, MissingCredentialError
 from backend.integrations.execution.mode import (
     current_trading_mode,
@@ -20,6 +22,11 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_trade,
 )
 from backend.integrations.execution.readiness import classify_live_execution_readiness
+from backend.integrations.execution.private_read import (
+    ClassifiedPrivateReadError,
+    classify_private_read_exception,
+    parse_bitmart_private_read_response,
+)
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
 
@@ -143,8 +150,17 @@ class CCXTExecutionClient:
             return fn(*args, **kwargs)
         except MissingCredentialError:
             raise
+        except ClassifiedPrivateReadError:
+            raise
         except Exception as exc:
             logger.warning("BitMart %s failed: %s", operation, exc.__class__.__name__)
+            if operation in {"fetch_open_orders", "fetch_orders", "fetch_my_trades", "fetch_order", "load_markets"}:
+                classification = classify_private_read_exception(exc)
+                raise ClassifiedPrivateReadError(
+                    f"BitMart private read {operation} failed [{classification}]: {exc}",
+                    classification=classification,
+                    operation=operation,
+                ) from exc
             raise IntegrationError(f"BitMart {operation} failed.") from exc
 
     def _normalize_order(self, order: dict[str, Any]) -> ExecutionOrder:
@@ -193,46 +209,12 @@ class CCXTExecutionClient:
 
     def _fetch_spot_balances_rest(self) -> list[ExecutionBalance]:
         """Fetch spot balances via the KEYED /account/v1/wallet endpoint (no signature required)."""
-        import time
-
-        import requests  # already in requirements.txt
-
         headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
-        _MAX_ATTEMPTS = 4
-        _RETRY_STATUSES = {502, 503, 504}
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
-            try:
-                resp = requests.get(self._SPOT_BALANCE_URL, headers=headers, timeout=15)
-            except Exception as exc:
-                if attempt < _MAX_ATTEMPTS:
-                    time.sleep(2 ** attempt)
-                    continue
-                raise IntegrationError(f"BitMart spot balance REST request failed: {exc}") from exc
-
-            if resp.status_code == 403:
-                raise IntegrationError(
-                    f"BitMart spot balance blocked (HTTP 403 / Cloudflare WAF). "
-                    f"Check User-Agent header. Body: {resp.text[:200]}"
-                )
-            if resp.status_code in _RETRY_STATUSES:
-                if attempt < _MAX_ATTEMPTS:
-                    wait = 2 ** attempt
-                    logger.warning(
-                        "BitMart spot balance HTTP %d (attempt %d/%d) — retrying in %ds",
-                        resp.status_code, attempt, _MAX_ATTEMPTS, wait,
-                    )
-                    time.sleep(wait)
-                    continue
-                raise IntegrationError(
-                    f"BitMart spot balance HTTP {resp.status_code} after {_MAX_ATTEMPTS} attempts"
-                )
-            break
-
-        body = resp.json()
-        if body.get("code") != 1000:
-            raise IntegrationError(
-                f"BitMart spot balance error {body.get('code')}: {body.get('message')}"
-            )
+        try:
+            resp = requests.get(self._SPOT_BALANCE_URL, headers=headers, timeout=15)
+        except Exception as exc:
+            raise IntegrationError(f"BitMart spot balance REST request failed: {exc}") from exc
+        body = parse_bitmart_private_read_response(resp, operation="spot balance")
 
         balances: list[ExecutionBalance] = []
         for item in (body.get("data") or {}).get("wallet") or []:
@@ -252,46 +234,12 @@ class CCXTExecutionClient:
 
     def _fetch_futures_balances_rest(self) -> list[ExecutionBalance]:
         """Fetch futures balances via the KEYED /contract/private/assets-detail endpoint."""
-        import time
-
-        import requests
-
         headers = {**self._REST_HEADERS_BASE, "X-BM-KEY": self._api_key}
-        _MAX_ATTEMPTS = 4
-        _RETRY_STATUSES = {502, 503, 504}
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
-            try:
-                resp = requests.get(self._FUTURES_BALANCE_URL, headers=headers, timeout=15)
-            except Exception as exc:
-                if attempt < _MAX_ATTEMPTS:
-                    time.sleep(2 ** attempt)
-                    continue
-                raise IntegrationError(f"BitMart futures balance REST request failed: {exc}") from exc
-
-            if resp.status_code == 403:
-                raise IntegrationError(
-                    f"BitMart futures balance blocked (HTTP 403 / Cloudflare WAF). "
-                    f"Check User-Agent header. Body: {resp.text[:200]}"
-                )
-            if resp.status_code in _RETRY_STATUSES:
-                if attempt < _MAX_ATTEMPTS:
-                    wait = 2 ** attempt
-                    logger.warning(
-                        "BitMart futures balance HTTP %d (attempt %d/%d) — retrying in %ds",
-                        resp.status_code, attempt, _MAX_ATTEMPTS, wait,
-                    )
-                    time.sleep(wait)
-                    continue
-                raise IntegrationError(
-                    f"BitMart futures balance HTTP {resp.status_code} after {_MAX_ATTEMPTS} attempts"
-                )
-            break
-
-        body = resp.json()
-        if body.get("code") != 1000:
-            raise IntegrationError(
-                f"BitMart futures balance error {body.get('code')}: {body.get('message')}"
-            )
+        try:
+            resp = requests.get(self._FUTURES_BALANCE_URL, headers=headers, timeout=15)
+        except Exception as exc:
+            raise IntegrationError(f"BitMart futures balance REST request failed: {exc}") from exc
+        body = parse_bitmart_private_read_response(resp, operation="futures balance")
 
         balances: list[ExecutionBalance] = []
         for item in body.get("data") or []:

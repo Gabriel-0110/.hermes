@@ -26,6 +26,7 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_trade,
 )
 from backend.integrations.execution.readiness import classify_live_execution_readiness
+from backend.integrations.execution.private_read import ClassifiedPrivateReadError, classify_private_read_exception
 from backend.observability.service import get_observability_service
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
@@ -303,8 +304,17 @@ class VenueExecutionClient:
             return fn(*args, **kwargs)
         except MissingCredentialError:
             raise
+        except ClassifiedPrivateReadError:
+            raise
         except Exception as exc:
             logger.warning("%s %s failed: %s", self.provider.name, operation, exc.__class__.__name__)
+            if operation in {"fetch_balance", "fetch_open_orders", "fetch_orders", "fetch_my_trades", "fetch_order"}:
+                classification = classify_private_read_exception(exc)
+                raise ClassifiedPrivateReadError(
+                    f"{self.provider.name} private read {operation} failed [{classification}]: {exc}",
+                    classification=classification,
+                    operation=operation,
+                ) from exc
             raise IntegrationError(f"{self.provider.name} {operation} failed.") from exc
 
     def _record_execution_telemetry(

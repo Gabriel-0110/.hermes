@@ -8,6 +8,7 @@ from typing import Any, Callable, Literal, Protocol
 from pydantic import BaseModel, Field
 
 from backend.integrations.execution.mode import is_paper_mode, live_trading_blockers
+from backend.integrations.execution.private_read import classify_private_read_exception
 
 
 ReadinessState = Literal[
@@ -35,6 +36,7 @@ class LiveExecutionReadiness(BaseModel):
     live_env_unlocked: bool
     credentials_configured: bool
     private_reads_working: bool
+    private_read_failure: str | None = None
     signed_writes_verified: bool
     copy_trading_api_supported: bool = False
     copy_trading_api_verified: bool = False
@@ -73,6 +75,7 @@ def classify_live_execution_readiness(
             live_env_unlocked=False,
             credentials_configured=client.configured,
             private_reads_working=False,
+            private_read_failure=None,
             signed_writes_verified=False,
             blockers=blockers,
         )
@@ -87,6 +90,7 @@ def classify_live_execution_readiness(
             live_env_unlocked=True,
             credentials_configured=False,
             private_reads_working=False,
+            private_read_failure=None,
             signed_writes_verified=False,
             blockers=[f"{exchange_label} credentials are not configured. Missing one or more of: {missing}."],
         )
@@ -95,6 +99,7 @@ def classify_live_execution_readiness(
         if private_read_probe is not None:
             private_read_probe()
     except Exception as exc:
+        failure = classify_private_read_exception(exc)
         return LiveExecutionReadiness(
             exchange=exchange,
             venue=client.exchange_id,
@@ -103,8 +108,9 @@ def classify_live_execution_readiness(
             live_env_unlocked=True,
             credentials_configured=True,
             private_reads_working=False,
+            private_read_failure=failure,
             signed_writes_verified=False,
-            blockers=[f"Private {exchange_label} read probe failed: {exc}"],
+            blockers=[f"Private {exchange_label} read probe failed [{failure}]: {exc}"],
         )
 
     write_verified = False
@@ -120,6 +126,7 @@ def classify_live_execution_readiness(
                 live_env_unlocked=True,
                 credentials_configured=True,
                 private_reads_working=True,
+                private_read_failure=None,
                 signed_writes_verified=False,
                 blockers=[f"Signed {exchange_label} write probe failed: {exc}"],
             )
@@ -133,6 +140,7 @@ def classify_live_execution_readiness(
             live_env_unlocked=True,
             credentials_configured=True,
             private_reads_working=True,
+            private_read_failure=None,
             signed_writes_verified=True,
         )
 
@@ -144,6 +152,7 @@ def classify_live_execution_readiness(
         live_env_unlocked=True,
         credentials_configured=True,
         private_reads_working=True,
+        private_read_failure=None,
         signed_writes_verified=False,
         blockers=[f"Signed {exchange_label} write capability has not been verified."],
     )
