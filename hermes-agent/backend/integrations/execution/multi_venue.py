@@ -26,6 +26,7 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_trade,
 )
 from backend.integrations.execution.readiness import classify_live_execution_readiness
+from backend.observability.service import get_observability_service
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
 
@@ -61,6 +62,56 @@ class FuturesWriteCapabilityCheck(BaseModel):
 
 def _is_truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+_SENSITIVE_TELEMETRY_KEYS = {
+    "authorization",
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "private_key",
+    "x-bm-key",
+    "x-bm-sign",
+    "signature",
+    "headers",
+}
+
+
+def _sanitize_execution_telemetry(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            key_str = str(key)
+            if key_str.lower() in _SENSITIVE_TELEMETRY_KEYS or any(token in key_str.lower() for token in ("secret", "signature")):
+                continue
+            sanitized[key_str] = _sanitize_execution_telemetry(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_execution_telemetry(item) for item in value[:50]]
+    if isinstance(value, tuple):
+        return [_sanitize_execution_telemetry(item) for item in value[:50]]
+    if isinstance(value, str):
+        return value[:300]
+    return value
+
+
+def _classify_write_failure(value: Any) -> str:
+    parts = [str(value or "")]
+    cause = getattr(value, "__cause__", None)
+    context = getattr(value, "__context__", None)
+    if cause is not None:
+        parts.append(str(cause))
+    if context is not None:
+        parts.append(str(context))
+    text = " ".join(parts).lower()
+    if "cloudflare" in text or "waf" in text or "error code: 1010" in text or "http 403" in text:
+        return "cloudflare_waf"
+    if "429" in text or "rate limit" in text or "too many request" in text:
+        return "rate_limited_write_access"
+    if any(term in text for term in ("auth", "signature", "sign", "unauthorized", "permission", "api key", "memo")):
+        return "auth_failed"
+    return "unknown_write_failure"
 
 _EXECUTION_TOOLS = [
     "get_exchange_balances",
@@ -256,6 +307,37 @@ class VenueExecutionClient:
             logger.warning("%s %s failed: %s", self.provider.name, operation, exc.__class__.__name__)
             raise IntegrationError(f"{self.provider.name} {operation} failed.") from exc
 
+    def _record_execution_telemetry(
+        self,
+        *,
+        event_type: str,
+        status: str,
+        symbol: str | None = None,
+        payload: dict[str, Any] | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        sanitized_payload = _sanitize_execution_telemetry(payload or {})
+        sanitized_payload.setdefault("venue", self.exchange_id)
+        sanitized_payload.setdefault("exchange", self.provider.name)
+        sanitized_payload.setdefault("account_type", self.account_type)
+        try:
+            get_observability_service().record_execution_event(
+                status=status,
+                event_type=event_type,
+                tool_name="execution_client",
+                symbol=symbol,
+                payload=sanitized_payload,
+                error_message=error_message,
+                metadata={
+                    "venue": self.exchange_id,
+                    "exchange": self.provider.name,
+                    "account_type": self.account_type,
+                    "payload": sanitized_payload,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - telemetry must not break execution
+            logger.debug("Failed to record execution telemetry event %s: %s", event_type, exc)
+
     def estimate_fee_bps(self, symbol: str | None = None, *, order_type: str = "market") -> float:
         fee_side = "MAKER" if order_type in {"limit", "stop_limit"} else "TAKER"
         env_value = os.getenv(f"{self._env_prefix}_{fee_side}_FEE_BPS", "").strip()
@@ -389,6 +471,85 @@ class VenueExecutionClient:
         reduce_only: bool = False,
         position_side: str | None = None,
     ) -> ExecutionOrder:
+        request_payload = {
+            "symbol": symbol,
+            "side": side,
+            "order_type": order_type,
+            "amount": amount,
+            "price": price,
+            "client_order_id": client_order_id,
+            "time_in_force": time_in_force,
+            "post_only": post_only,
+            "reduce_only": reduce_only,
+            "position_side": position_side,
+        }
+        self._record_execution_telemetry(
+            event_type="order_submit_requested",
+            status="requested",
+            symbol=symbol,
+            payload=request_payload,
+        )
+        try:
+            order = self._place_order_without_telemetry(
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                amount=amount,
+                price=price,
+                client_order_id=client_order_id,
+                time_in_force=time_in_force,
+                post_only=post_only,
+                reduce_only=reduce_only,
+                position_side=position_side,
+            )
+        except Exception as exc:
+            classification = _classify_write_failure(exc)
+            self._record_execution_telemetry(
+                event_type="order_submit_rejected",
+                status=classification,
+                symbol=symbol,
+                payload={**request_payload, "error_classification": classification},
+                error_message=str(exc),
+            )
+            raise
+        self._record_execution_telemetry(
+            event_type="order_submit_accepted",
+            status="accepted",
+            symbol=order.symbol,
+            payload={
+                "symbol": order.symbol,
+                "order_id": order.order_id,
+                "status": order.status,
+                "side": order.side,
+                "order_type": order.order_type,
+                "amount": order.amount,
+                "reduce_only": order.reduce_only,
+            },
+        )
+        return order
+
+    def _should_use_bitmart_direct_swap_submission(self, order_type: str) -> bool:
+        normalized_type = (order_type or "").strip().lower()
+        return (
+            self.exchange_id == "bitmart"
+            and self.account_type in {"contract", "futures", "swap"}
+            and normalized_type in {"market", "limit"}
+        )
+
+    def _place_order_without_telemetry(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float | None = None,
+        client_order_id: str | None = None,
+        time_in_force: str | None = None,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
+    ) -> ExecutionOrder:
         if self._should_use_bitmart_direct_swap_submission(order_type):
             return self._submit_bitmart_swap_order(
                 symbol=symbol,
@@ -429,14 +590,6 @@ class VenueExecutionClient:
         normalized = self._normalize_order(order)
         logger.info("%s order submitted successfully for %s as %s", self.provider.name, normalized.symbol, normalized.order_id)
         return normalized
-
-    def _should_use_bitmart_direct_swap_submission(self, order_type: str) -> bool:
-        normalized_type = (order_type or "").strip().lower()
-        return (
-            self.exchange_id == "bitmart"
-            and self.account_type in {"contract", "futures", "swap"}
-            and normalized_type in {"market", "limit"}
-        )
 
     def _bitmart_swap_side_code(self, *, side: str, reduce_only: bool, position_side: str | None) -> int:
         normalized_side = (side or "").strip().lower()
@@ -590,6 +743,17 @@ class VenueExecutionClient:
             "size": 0,
             "open_type": os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross",
         }
+        self._record_execution_telemetry(
+            event_type="bitmart_futures_write_probe_started",
+            status="started",
+            symbol=symbol,
+            payload={
+                "symbol": symbol,
+                "verify_remote": verify_remote,
+                "request_path": _BITMART_DIRECT_FUTURES_ORDER_PATH,
+                "live_risking_order": False,
+            },
+        )
         signed = self._build_bitmart_signed_futures_request(body)
         safe_headers = dict(signed["headers"])
         if safe_headers.get("X-BM-KEY"):
@@ -604,7 +768,7 @@ class VenueExecutionClient:
             "body": body,
         }
         if not verify_remote:
-            return FuturesWriteCapabilityCheck(
+            result = FuturesWriteCapabilityCheck(
                 exchange=self.provider.name,
                 venue=self.exchange_id,
                 account_type=self.account_type,
@@ -613,6 +777,18 @@ class VenueExecutionClient:
                 detail="Prepared signed BitMart futures write request; remote verification was not run.",
                 prepared_request=prepared_request,
             )
+            self._record_execution_telemetry(
+                event_type="bitmart_futures_write_probe_result",
+                status=result.status,
+                symbol=symbol,
+                payload={
+                    "status": result.status,
+                    "verified": result.verified,
+                    "live_risking_order": result.live_risking_order,
+                    "request_path": result.request_path,
+                },
+            )
+            return result
 
         try:
             response = requests.post(
@@ -622,7 +798,7 @@ class VenueExecutionClient:
                 timeout=30,
             )
         except Exception as exc:
-            return FuturesWriteCapabilityCheck(
+            result = FuturesWriteCapabilityCheck(
                 exchange=self.provider.name,
                 venue=self.exchange_id,
                 account_type=self.account_type,
@@ -631,7 +807,35 @@ class VenueExecutionClient:
                 detail=f"BitMart futures write probe failed before a response was received: {exc}",
                 prepared_request=prepared_request,
             )
-        return self._classify_bitmart_write_response(response=response, prepared_request=prepared_request)
+            self._record_execution_telemetry(
+                event_type="bitmart_futures_write_probe_result",
+                status=result.status,
+                symbol=symbol,
+                payload={
+                    "status": result.status,
+                    "verified": result.verified,
+                    "live_risking_order": result.live_risking_order,
+                    "request_path": result.request_path,
+                    "error_classification": result.status,
+                },
+                error_message=result.detail,
+            )
+            return result
+        result = self._classify_bitmart_write_response(response=response, prepared_request=prepared_request)
+        self._record_execution_telemetry(
+            event_type="bitmart_futures_write_probe_result",
+            status=result.status,
+            symbol=symbol,
+            payload={
+                "status": result.status,
+                "verified": result.verified,
+                "live_risking_order": result.live_risking_order,
+                "request_path": result.request_path,
+                "error_classification": None if result.verified else result.status,
+            },
+            error_message=None if result.verified else result.detail,
+        )
+        return result
 
     def _submit_bitmart_swap_order(
         self,
@@ -734,9 +938,40 @@ class VenueExecutionClient:
 
     def cancel_order(self, *, order_id: str, symbol: str | None = None) -> ExecutionOrder:
         exchange = self._get_exchange()
+        self._record_execution_telemetry(
+            event_type="order_cancel_requested",
+            status="requested",
+            symbol=symbol,
+            payload={"order_id": order_id, "symbol": symbol},
+        )
         logger.info("Cancelling %s order %s", self.provider.name, order_id)
-        order = self._call_exchange("cancel_order", exchange.cancel_order, order_id, symbol)
-        normalized = self._normalize_order(order)
+        try:
+            order = self._call_exchange("cancel_order", exchange.cancel_order, order_id, symbol)
+            normalized = self._normalize_order(order)
+        except Exception as exc:
+            classification = _classify_write_failure(exc)
+            self._record_execution_telemetry(
+                event_type="order_cancel_rejected",
+                status=classification,
+                symbol=symbol,
+                payload={
+                    "order_id": order_id,
+                    "symbol": symbol,
+                    "error_classification": classification,
+                },
+                error_message=str(exc),
+            )
+            raise
+        self._record_execution_telemetry(
+            event_type="order_cancel_accepted",
+            status="accepted",
+            symbol=normalized.symbol,
+            payload={
+                "order_id": normalized.order_id,
+                "symbol": normalized.symbol,
+                "status": normalized.status,
+            },
+        )
         logger.info("%s order %s cancellation acknowledged", self.provider.name, normalized.order_id)
         return normalized
 
