@@ -47,7 +47,7 @@ def dispatch_trade_proposal(proposal: TradeProposal) -> ExecutionDispatchResult:
         side=proposal.side,
         order_type=proposal.order_type,
         size_usd=decision.approved_size_usd,
-        amount=decision.approved_size_usd,
+        amount=None,
         price=proposal.limit_price,
         rationale=proposal.rationale,
         strategy_id=proposal.strategy_id,

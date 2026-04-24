@@ -233,6 +233,15 @@ TOOLSETS = {
         "includes": []
     },
 
+    "trading-execution": {
+        "description": "Minimal toolset for the execution_agent — fire approved orders only",
+        "tools": [
+            "get_execution_status", "place_order", "cancel_order", "get_portfolio_state",
+            "get_open_orders", "send_execution_update",
+        ],
+        "includes": []
+    },
+
     "trading-orchestrator": {
         "description": "Least-privilege toolset for the orchestrator_trader agent",
         "tools": [
@@ -240,6 +249,7 @@ TOOLSETS = {
             "get_execution_status",
             "get_recent_tradingview_alerts", "get_pending_signal_events",
             "get_tradingview_alert_context",
+            "delegate_task",
         ],
         "includes": []
     },

@@ -5,8 +5,8 @@ This directory contains the source-controlled definition of the Hermes trading d
 Primary files:
 - [`agents.yaml`](./agents.yaml): canonical desk agent roster and role metadata
 - [`TEAM.md`](./TEAM.md): desk laws, topology, and operating rules
-- [`PAPER_MODE.yaml`](./PAPER_MODE.yaml): paper-trading constraints and mode guidance
-- [`ORCHESTRATOR_PAPER_CHECKLIST.md`](./ORCHESTRATOR_PAPER_CHECKLIST.md): operator checklist for paper execution
+- [`PAPER_MODE.yaml`](./PAPER_MODE.yaml): live-trading runtime unlock and execution-mode guidance
+- [`ORCHESTRATOR_PAPER_CHECKLIST.md`](./ORCHESTRATOR_PAPER_CHECKLIST.md): operator checklist for live execution
 
 Subdirectories:
 - [`agent_profiles/`](./agent_profiles): per-role desk profile descriptors

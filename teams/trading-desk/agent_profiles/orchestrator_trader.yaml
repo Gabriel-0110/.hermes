@@ -8,6 +8,8 @@ allowed_tools:
   - get_risk_approval
   - get_portfolio_state
   - get_execution_status
+  - place_order
+  - cancel_order
   - get_recent_tradingview_alerts
   - get_pending_signal_events
   - get_tradingview_alert_context
@@ -21,7 +23,7 @@ responsibilities:
   - collect outputs from all agents
   - manage decision flow
   - produce approved action intents and market/result summaries
-  - hand off execution requests through internal workflow only
+  - hand off execution requests through internal workflow or guarded execution tools only
 skills:
   - workflow_routing
   - decision_aggregation
@@ -53,4 +55,3 @@ platforms:
     groups:
       - hermes-agent-general  # -1003986582232 — general group (no mention required)
     require_mention: true
-

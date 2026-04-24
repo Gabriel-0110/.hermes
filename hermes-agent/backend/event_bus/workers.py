@@ -327,15 +327,17 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
     return _place_live_order(event, request=request)
 
 
-def _resolve_order_amount(payload: dict) -> float:
+def _resolve_order_amount(payload: dict, *, prefer_size_usd: bool = False) -> float:
     """Resolve a base-unit order amount from the event payload.
 
     Workflow-sourced events carry ``size_usd`` (notional USD) rather than a
     base-unit quantity.  When that is the case we attempt a best-effort price
     lookup and divide.  A direct ``amount`` field in the payload always wins.
     """
-    # Direct amount takes priority (from manual /execution/place API calls).
-    if payload.get("amount") is not None:
+    # Direct amount takes priority for manual /execution/place calls. Workflow
+    # proposals usually carry USD notional, so live workers should prefer
+    # size_usd conversion when both fields are present.
+    if payload.get("amount") is not None and not prefer_size_usd:
         raw = payload["amount"]
         return float(raw)
 
@@ -426,10 +428,10 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
     payload = request.model_dump(mode="json")
 
     try:
-        from backend.integrations.execution.ccxt_client import CCXTExecutionClient
+        from backend.integrations.execution import VenueExecutionClient
         from backend.integrations.base import IntegrationError, MissingCredentialError
 
-        client = CCXTExecutionClient()
+        client = VenueExecutionClient("bitmart")
         if not client.configured:
             logger.error(
                 "execution_handler: BitMart not configured — cannot place order for symbol=%s",
@@ -446,12 +448,36 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
             _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
             return True  # ack to avoid poison-pill loop
 
+        status = client.get_execution_status(symbol=request.symbol or ev.symbol)
+        if getattr(status, "readiness_status", None) != "api_execution_ready":
+            detail = (
+                "BitMart direct futures execution requires readiness_status='api_execution_ready'. "
+                f"Current readiness_status={getattr(status, 'readiness_status', None)!r}."
+            )
+            result = ExecutionResult.blocked(
+                symbol=request.symbol,
+                execution_mode="live",
+                reason=RiskRejectionReason.EXECUTION_FAILED,
+                correlation_id=ev.correlation_id,
+                workflow_id=ev.workflow_id,
+                error_message=detail,
+                payload={
+                    **payload,
+                    "failure_stage": "execution_readiness",
+                    "readiness_status": getattr(status, "readiness_status", None),
+                    "readiness": getattr(status, "readiness", None),
+                    "support_matrix": getattr(status, "support_matrix", None),
+                },
+            )
+            _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
+            return True
+
         order = client.place_order(
             symbol=request.symbol or ev.symbol or "",
             side=request.side,
             order_type=request.order_type,
             amount=_clamp_order_amount(
-                _resolve_order_amount(payload),
+                _resolve_order_amount(payload, prefer_size_usd=payload.get("size_usd") is not None),
                 request.symbol or ev.symbol or "",
             ),
             price=float(request.price) if request.price is not None else None,

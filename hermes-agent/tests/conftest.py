@@ -32,6 +32,13 @@ def _isolate_hermes_home(tmp_path, monkeypatch):
         monkeypatch.setattr(_plugins_mod, "_plugin_manager", None)
     except Exception:
         pass
+    # Tests must not inherit a live-trading shell environment.  Any test that
+    # explicitly needs live mode sets these itself via monkeypatch.
+    monkeypatch.setenv("HERMES_TRADING_MODE", "paper")
+    monkeypatch.setenv("HERMES_ENABLE_LIVE_TRADING", "false")
+    monkeypatch.setenv("HERMES_LIVE_TRADING_ACK", "")
+    monkeypatch.delenv("HERMES_PAPER_MODE", raising=False)
+    monkeypatch.delenv("HERMES_KILL_SWITCH", raising=False)
     # Tests should not inherit the agent's current gateway/messaging surface.
     # Individual tests that need gateway behavior set these explicitly.
     monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)

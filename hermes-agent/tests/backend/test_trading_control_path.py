@@ -321,6 +321,16 @@ def test_worker_records_distinct_live_execution_outcome(monkeypatch) -> None:
     class FakeClient:
         configured = True
 
+        def __init__(self, venue: str = "bitmart") -> None:
+            self.venue = venue
+
+        def get_execution_status(self, **kwargs):
+            return SimpleNamespace(
+                readiness_status="api_execution_ready",
+                readiness={},
+                support_matrix={},
+            )
+
         def place_order(self, **kwargs):
             return SimpleNamespace(
                 order_id="ord-live-1",
@@ -335,20 +345,21 @@ def test_worker_records_distinct_live_execution_outcome(monkeypatch) -> None:
                 },
             )
 
-    monkeypatch.setattr("backend.event_bus.workers.CCXTExecutionClient", FakeClient, raising=False)
+    import backend.integrations.execution as execution_module
+
+    monkeypatch.setattr(execution_module, "VenueExecutionClient", FakeClient)
     monkeypatch.setattr(
         "backend.event_bus.workers._record_execution_event",
         lambda event, outcome: recorded.append(outcome),
     )
     monkeypatch.setattr(
         "backend.event_bus.workers._resolve_order_amount",
-        lambda payload: 0.25,
+        lambda payload, **kwargs: 0.25,
     )
     monkeypatch.setattr(
         "backend.event_bus.workers._clamp_order_amount",
         lambda amount, symbol: amount,
     )
-    monkeypatch.setitem(__import__("sys").modules, "backend.integrations.execution.ccxt_client", SimpleNamespace(CCXTExecutionClient=FakeClient))
 
     envelope = TradingEventEnvelope(
         event=TradingEvent(

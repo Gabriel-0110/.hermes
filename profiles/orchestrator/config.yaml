@@ -247,15 +247,14 @@ memory:
   nudge_interval: 10
   flush_min_turns: 6
 delegation:
-  model: portfolio-default
+  model: execution-default
   provider: litellm
   base_url: ''
   api_key: ''
-  max_iterations: 50
+  max_iterations: 12
   reasoning_effort: ''
   default_toolsets:
-  - terminal
-  - file
+  - trading-execution
   - web
 prefill_messages_file: ''
 skills:

@@ -1,23 +1,12 @@
-# Orchestrator Paper Trading Checklist
+# Orchestrator Live Trading Checklist
 
 ## 0. Hard Guardrail
-- Validate every BitMart request through `scripts/bitmart_paper_guard.py` before any network call.
-- Allowed execution base URL in paper mode: `https://demo-api-cloud-v2.bitmart.com`
-- Forbidden live base URLs:
-  - `https://api-cloud-v2.bitmart.com`
-  - `https://api-cloud.bitmart.com`
-- If the guard rejects the URL, stop immediately and report the violation.
-
-Example wrapper:
-```bash
-python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py \
-  --base-url https://demo-api-cloud-v2.bitmart.com \
-  --method GET \
-  --path /contract/private/assets-detail -- \
-  curl -s -H "X-BM-KEY: $BITMART_API_KEY" \
-       -H "User-Agent: bitmart-skills/futures/v2026.3.23" \
-       "https://demo-api-cloud-v2.bitmart.com/contract/private/assets-detail"
-```
+- Confirm live runtime unlock is active before any execution call:
+  - `HERMES_TRADING_MODE=live`
+  - `HERMES_ENABLE_LIVE_TRADING=true`
+  - `HERMES_LIVE_TRADING_ACK=I_ACKNOWLEDGE_LIVE_TRADING_RISK`
+- Confirm production BitMart endpoint and account context are the intended target before any network call.
+- If live unlock is missing, account state is unclear, or infra is degraded, stop immediately and report the blocker.
 
 ## 1. Market Check
 - Confirm system/service status.
@@ -30,26 +19,26 @@ python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.p
 - State setup type and thesis in one sentence.
 - Define symbol, side, entry type, entry price, stop, TP1/TP2, invalidation.
 - Include fee-aware expected R multiple after fees.
-- State confidence and reason for paper test if this is operational validation rather than alpha deployment.
+- State confidence and why the edge is worth deploying in live mode.
 
 ## 3. Risk Approval
-- Read demo balance and confirm non-zero funds.
+- Read live balance and confirm available margin/funds.
 - Check current positions, open orders, and position mode.
-- Size from explicit risk budget; default desk risk is 2% max, but first operational paper test should use the minimum practical contract size unless Ben/Gabe says otherwise.
-- Reject if live URL, oversized risk, poor R:R, or conflicting exposure is detected.
+- Size from explicit risk budget; default desk risk is 2% max unless Ben/Gabe explicitly authorizes deviation.
+- Reject if runtime unlock is missing, risk is oversized, R:R is poor after fees, infra is degraded, or exposure conflicts exist.
 
 ## 4. Execution Confirmation
 - Present the exact order payload and target base URL.
-- Explicitly label whether the order is paper-only and whether it is limit or market.
-- Require human confirmation word-for-word before any write call.
+- Explicitly label whether the order is limit or market and whether it opens, reduces, or closes exposure.
+- Require human confirmation word-for-word before any write call unless Ben/Gabe has explicitly removed that requirement for the run.
 - If no confirmation is given, stop at prepared order only.
 
 ## 5. Monitoring Loop
 - After execution, verify order status and position state from the exchange.
 - Track fills, unrealized PnL, liquidation, stop/TP status, and open exposure.
 - Update only on rule-based triggers: fill, partial fill, stop move, TP hit, invalidation, or risk breach.
-- If conditions degrade or the paper thesis invalidates, prepare the exit order and require confirmation for any write action.
+- If conditions degrade or the thesis invalidates, prepare the exit order and require confirmation for any write action unless standing authority says otherwise.
 
 ## 6. End-of-Run Log
 - Capture market snapshot, proposal, risk numbers, execution decision, and next monitoring trigger.
-- Note whether the run ended at prepared-order stage or actual paper execution.
+- Note whether the run ended at prepared-order stage or actual live execution.

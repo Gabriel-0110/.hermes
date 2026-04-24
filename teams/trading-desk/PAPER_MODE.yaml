@@ -1,10 +1,16 @@
-mode: paper
-execution_base_url: https://demo-api-cloud-v2.bitmart.com
-live_execution_forbidden: true
-forbidden_live_base_urls:
+mode: live
+execution_base_url: https://api-cloud-v2.bitmart.com
+live_execution_forbidden: false
+live_execution_requires_env_unlock: true
+required_env_unlock:
+  HERMES_TRADING_MODE: live
+  HERMES_ENABLE_LIVE_TRADING: 'true'
+  HERMES_LIVE_TRADING_ACK: I_ACKNOWLEDGE_LIVE_TRADING_RISK
+readiness_required: api_execution_ready
+allowed_live_base_urls:
 - https://api-cloud-v2.bitmart.com
 - https://api-cloud.bitmart.com
-enforcement_script: /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py
-enforcement_mode: hard_block
-required_execution_wrapper: python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py --base-url <base_url> -- <command>
-status: active
+enforcement_script: null
+enforcement_mode: live_guarded
+required_execution_wrapper: null
+status: live_enabled

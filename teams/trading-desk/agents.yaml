@@ -22,7 +22,7 @@ agents:
   - collect outputs from all agents
   - manage decision flow
   - produce approved action intents and market/result summaries
-  - hand off execution requests through internal workflow only
+  - hand off execution requests through internal workflow or guarded execution tools only
   reports_to: null
   forbidden_actions:
   - no raw market-provider access
@@ -40,6 +40,7 @@ agents:
   - get_recent_tradingview_alerts
   - get_pending_signal_events
   - get_tradingview_alert_context
+  - delegate_task
   assigned_skills:
   - workflow_routing
   - decision_aggregation
@@ -49,6 +50,38 @@ agents:
   - execution request
   - workflow summary
   - market/result summary
+- name: execution-agent
+  canonical_agent_id: execution_agent
+  profile: execution-agent
+  model: ''
+  provider: ''
+  role: mechanical order executor — fires pre-approved tickets, nothing more
+  responsibilities:
+  - check execution readiness via get_execution_status
+  - call place_order with the exact approved ticket parameters
+  - report order ID, fill status, and errors
+  - call cancel_order only when explicitly instructed
+  reports_to: orchestrator
+  forbidden_actions:
+  - no trade evaluation or modification
+  - no strategy generation
+  - no raw secret access
+  - no unsolicited cancel or close actions
+  allowed_toolsets:
+  - trading-execution
+  allowed_tools:
+  - get_execution_status
+  - place_order
+  - cancel_order
+  - get_portfolio_state
+  - get_open_orders
+  - send_execution_update
+  assigned_skills: []
+  expected_outputs:
+  - order confirmation with order ID
+  - execution result (filled, rejected, blocked)
+  - error detail if failed
+
 - name: market-researcher
   canonical_agent_id: market_researcher
   profile: market-researcher
@@ -225,14 +258,20 @@ agents:
   - reconciliation report
   - drift alert
 trading_mode:
-  mode: paper
-  execution_base_url: https://demo-api-cloud-v2.bitmart.com
-  forbid_live_execution: true
-  forbid_live_base_urls:
+  mode: live
+  execution_base_url: https://api-cloud-v2.bitmart.com
+  forbid_live_execution: false
+  live_execution_requires_env_unlock: true
+  required_env_unlock:
+    HERMES_TRADING_MODE: live
+    HERMES_ENABLE_LIVE_TRADING: 'true'
+    HERMES_LIVE_TRADING_ACK: I_ACKNOWLEDGE_LIVE_TRADING_RISK
+  readiness_required: api_execution_ready
+  allowed_live_base_urls:
   - https://api-cloud-v2.bitmart.com
   - https://api-cloud.bitmart.com
-  enforcement_script: /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py
-  enforcement_mode: hard_block
-  required_execution_wrapper: python3 /Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py --base-url <base_url> -- <command>
-  required_demo_claim_before_execution: true
+  enforcement_script: null
+  enforcement_mode: live_guarded
+  required_execution_wrapper: null
+  required_demo_claim_before_execution: false
   required_explicit_human_confirmation_for_write_actions: true

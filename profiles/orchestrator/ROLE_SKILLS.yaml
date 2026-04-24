@@ -7,6 +7,8 @@ allowed_tools:
 - get_risk_approval
 - get_portfolio_state
 - get_execution_status
+- place_order
+- cancel_order
 - get_recent_tradingview_alerts
 - get_pending_signal_events
 - get_tradingview_alert_context

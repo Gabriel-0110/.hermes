@@ -302,16 +302,6 @@ streaming:
 platform_toolsets:
   cli:
   - hermes-cli
-  slack:
-  - hermes-slack
-  discord:
-  - hermes-discord
-  whatsapp:
-  - hermes-whatsapp
-  signal:
-  - hermes-signal
-  homeassistant:
-  - hermes-homeassistant
 code_execution:
   timeout: 300
   max_tool_calls: 50

@@ -46,15 +46,15 @@ All desk agents must remain aligned with:
 - Agents interact exclusively through internal trading tools such as `get_crypto_prices`, `get_ohlcv`, `get_crypto_news`, `get_social_sentiment`, `get_onchain_wallet_data`, `get_smart_money_flows`, `get_event_risk_summary`, `get_portfolio_state`, and `send_notification`.
 - Direct provider HTTP calls from prompts, agent business logic, or UI layers are forbidden.
 
-## Paper Mode Law
+## Live Trading Law
 
-The desk is currently in PAPER MODE.
+The desk is currently in LIVE MODE.
 
 Hard rules:
-- All BitMart execution and account-write actions must use `https://demo-api-cloud-v2.bitmart.com` only.
-- Production BitMart base URLs are forbidden while paper mode is active.
-- No live trading, no production order placement, no production order amendment, no production order cancellation.
-- Before paper execution begins, the demo account must have non-zero claimable or claimed balance.
-- All write actions still require explicit human confirmation before execution.
-- Every BitMart request must be validated through `/Users/openclaw/.hermes/teams/trading-desk/scripts/bitmart_paper_guard.py` before network execution.
-- If any tool, script, or prompt attempts to use a live endpoint while paper mode is active, the guard must reject it and the workflow must stop immediately and report the violation.
+- Live execution is permitted only while runtime unlock remains active via `HERMES_TRADING_MODE=live`, `HERMES_ENABLE_LIVE_TRADING=true`, and `HERMES_LIVE_TRADING_ACK=I_ACKNOWLEDGE_LIVE_TRADING_RISK`.
+- Production BitMart endpoints are allowed for live execution; demo-only routing is no longer the desk default.
+- All write actions still require explicit human confirmation before execution unless Ben or Gabe states otherwise.
+- Standard desk risk remains 2% per trade, with up to 3% only under exceptional conditions and never through revenge/FOMO behavior.
+- Fee-aware execution is mandatory. Avoid fee-blind scalping, prefer limit orders when practical, and reject poor net expectancy after fees.
+- Protect capital first: oversized risk, broken infra, uncertain account state, or degraded execution telemetry are valid reasons to halt execution even in live mode.
+- If runtime unlock is removed or live execution blockers appear, the workflow must stop immediately and report the blocker rather than silently falling back to stale assumptions.

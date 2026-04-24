@@ -2426,6 +2426,42 @@ class TestFlushSentinelNotLeaked:
             )
 
 
+class TestFlushMemoriesPersistsHighValueTradingFacts:
+    """High-value recent trading facts should be persisted by memory flush guidance."""
+
+    def test_flush_prompt_prioritizes_recent_trading_positions(self, agent_with_memory_tool):
+        agent = agent_with_memory_tool
+        agent._memory_store = MagicMock()
+        agent._memory_flush_min_turns = 1
+        agent._user_turn_count = 10
+        agent._cached_system_prompt = "system"
+
+        messages = [
+            {"role": "user", "content": "We just started BitMart copy trading on ETH01 last night with 1000 USDT."},
+            {"role": "assistant", "content": "Understood."},
+            {"role": "user", "content": "Remember the allocation and guardrails for ETH01 copy trading."},
+        ]
+
+        mock_msg = SimpleNamespace(content="OK", tool_calls=None)
+        mock_choice = SimpleNamespace(message=mock_msg)
+        mock_response = SimpleNamespace(choices=[mock_choice])
+        agent.client.chat.completions.create.return_value = mock_response
+
+        with patch("agent.auxiliary_client.call_llm", side_effect=RuntimeError("no provider")):
+            agent.flush_memories(messages, min_turns=0)
+
+        call_args = agent.client.chat.completions.create.call_args
+        assert call_args is not None, "flush_memories never called the API"
+        api_messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        flush_user_messages = [
+            msg["content"] for msg in api_messages if msg.get("role") == "user"
+        ]
+        assert any(
+            "recent trading allocations, newly opened positions, copy-trading setups" in content
+            for content in flush_user_messages
+        ), "flush prompt should explicitly tell the model to preserve recent high-value trading facts"
+
+
 # ---------------------------------------------------------------------------
 # Conversation history mutation
 # ---------------------------------------------------------------------------

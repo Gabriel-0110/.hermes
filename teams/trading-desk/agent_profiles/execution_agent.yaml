@@ -1,0 +1,28 @@
+agent_id: execution_agent
+runtime_profile: execution-agent
+role: mechanical order executor — fires pre-approved tickets, nothing more
+allowed_toolsets:
+  - trading-execution
+allowed_tools:
+  - get_execution_status
+  - place_order
+  - cancel_order
+  - get_portfolio_state
+  - get_open_orders
+  - send_execution_update
+forbidden_actions:
+  - no trade evaluation or modification
+  - no strategy generation
+  - no raw secret access
+  - no unsolicited cancel or close actions
+responsibilities:
+  - check execution readiness via get_execution_status
+  - call place_order with the exact approved ticket parameters
+  - report order ID, fill status, and errors
+skills: []
+expected_inputs:
+  - approved order ticket with symbol, side, order_type, amount, price, approval_id
+expected_outputs:
+  - order confirmation with order ID
+  - execution result (filled, rejected, blocked)
+  - error detail if failed
