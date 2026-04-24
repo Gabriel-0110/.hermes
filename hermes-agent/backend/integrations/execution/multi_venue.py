@@ -24,6 +24,7 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_order,
     normalize_ccxt_trade,
 )
+from backend.integrations.execution.readiness import classify_live_execution_readiness
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import ExchangeBalances, ExecutionBalance, ExecutionOrder, ExecutionStatus, ExecutionTrade
 
@@ -577,6 +578,10 @@ class VenueExecutionClient:
         return [self._normalize_trade(trade) for trade in trades]
 
     def get_execution_status(self, *, order_id: str | None = None, symbol: str | None = None) -> ExecutionStatus:
+        readiness = classify_live_execution_readiness(
+            self,
+            private_read_probe=lambda: self.get_exchange_balances(),
+        )
         if not self.configured:
             return ExecutionStatus(
                 exchange=self.provider.name,
@@ -584,24 +589,26 @@ class VenueExecutionClient:
                 connected=False,
                 rate_limit_enabled=self.rate_limit_enabled,
                 account_type=self.account_type,
+                readiness_status=readiness.status,
+                readiness=readiness.model_dump(mode="json"),
                 detail=f"{self.provider.name} credentials are not configured.",
                 checked_at=datetime.now(timezone.utc).isoformat(),
             )
-        exchange = self._get_exchange()
         order: ExecutionOrder | None = None
-        detail = f"{self.provider.name} execution client configured."
+        detail = f"{self.provider.name} execution readiness: {readiness.status}."
         if order_id:
+            exchange = self._get_exchange()
             raw_order = self._call_exchange("fetch_order", exchange.fetch_order, order_id, symbol)
             order = self._normalize_order(raw_order)
             detail = f"Fetched {self.provider.name} status for order {order.order_id}."
-        else:
-            self._ensure_markets_loaded()
         return ExecutionStatus(
             exchange=self.provider.name,
             configured=True,
-            connected=True,
+            connected=readiness.private_reads_working,
             rate_limit_enabled=self.rate_limit_enabled,
             account_type=self.account_type,
+            readiness_status=readiness.status,
+            readiness=readiness.model_dump(mode="json"),
             detail=detail,
             order=order,
             checked_at=datetime.now(timezone.utc).isoformat(),

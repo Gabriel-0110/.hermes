@@ -425,6 +425,8 @@ class ExecutionStatus(BaseModel):
     connected: bool
     rate_limit_enabled: bool
     account_type: str = "spot"
+    readiness_status: str | None = None
+    readiness: dict[str, Any] | None = None
     detail: str | None = None
     order: ExecutionOrder | None = None
     checked_at: str | None = None
