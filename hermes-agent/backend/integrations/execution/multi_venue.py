@@ -699,7 +699,7 @@ class VenueExecutionClient:
                 prepared_request=prepared_request,
             )
 
-        if status_code == 200 and code not in {None, 1000}:
+        if 200 <= status_code < 500 and code not in {None, 1000}:
             return FuturesWriteCapabilityCheck(
                 exchange=self.provider.name,
                 venue=self.exchange_id,

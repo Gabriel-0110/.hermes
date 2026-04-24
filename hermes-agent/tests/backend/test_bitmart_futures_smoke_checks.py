@@ -64,6 +64,25 @@ def test_futures_write_smoke_check_verifies_when_exchange_reaches_business_valid
     assert captured["body"]["size"] == 0
 
 
+def test_futures_write_smoke_check_verifies_http_400_exchange_business_validation(monkeypatch) -> None:
+    client = _configured_bitmart_client(monkeypatch)
+
+    class FakeResponse:
+        status_code = 400
+        text = '{"code":40035,"message":"Invalid Range","trace":"trace-1"}'
+
+        def json(self):
+            return {"code": 40035, "message": "Invalid Range", "trace": "trace-1"}
+
+    monkeypatch.setattr(multi_venue_module.requests, "post", lambda *args, **kwargs: FakeResponse())
+
+    result = client.check_futures_write_capability(symbol="BTCUSDT", verify_remote=True)
+
+    assert result.status == "write_verified"
+    assert result.verified is True
+    assert result.live_risking_order is False
+
+
 def test_futures_write_smoke_check_classifies_cloudflare_waf(monkeypatch) -> None:
     client = _configured_bitmart_client(monkeypatch)
 
