@@ -9,9 +9,10 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any
+from typing import Any, Literal
 
 import requests
+from pydantic import BaseModel, Field
 
 from backend.integrations.base import IntegrationError, MissingCredentialError, ProviderProfile
 from backend.integrations.execution.mode import (
@@ -33,6 +34,33 @@ logger = logging.getLogger(__name__)
 _BITMART_DIRECT_FUTURES_BASE_URL = "https://api-cloud-v2.bitmart.com"
 _BITMART_DIRECT_FUTURES_ORDER_PATH = "/contract/private/submit-order"
 _BITMART_DIRECT_USER_AGENT = "bitmart-skills/futures/v2026.3.23"
+
+
+WriteCapabilityStatus = Literal[
+    "dry_run_prepared",
+    "write_verified",
+    "cloudflare_waf",
+    "rate_limited_write_access",
+    "auth_failed",
+    "unknown_write_failure",
+]
+
+
+class FuturesWriteCapabilityCheck(BaseModel):
+    exchange: str
+    venue: str
+    account_type: str
+    status: WriteCapabilityStatus
+    verified: bool = False
+    live_risking_order: bool = False
+    request_path: str | None = None
+    detail: str | None = None
+    prepared_request: dict[str, Any] | None = None
+    checked_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+def _is_truthy_env(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 _EXECUTION_TOOLS = [
     "get_exchange_balances",
@@ -436,6 +464,175 @@ class VenueExecutionClient:
             return 3
         return None
 
+    def _build_bitmart_signed_futures_request(self, body: dict[str, Any]) -> dict[str, Any]:
+        body_json = json.dumps(body, separators=(",", ":"))
+        timestamp = str(int(time.time() * 1000))
+        signature_payload = f"{timestamp}#{self._memo}#{body_json}"
+        signature = hmac.new(self._secret.encode(), signature_payload.encode(), hashlib.sha256).hexdigest()
+        base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
+        return {
+            "url": f"{base_url}{_BITMART_DIRECT_FUTURES_ORDER_PATH}",
+            "body_json": body_json,
+            "headers": {
+                "Content-Type": "application/json",
+                "User-Agent": _BITMART_DIRECT_USER_AGENT,
+                "X-BM-KEY": self._api_key,
+                "X-BM-SIGN": signature,
+                "X-BM-TIMESTAMP": timestamp,
+            },
+        }
+
+    def _classify_bitmart_write_response(
+        self,
+        *,
+        response: Any,
+        prepared_request: dict[str, Any],
+    ) -> FuturesWriteCapabilityCheck:
+        body_text = str(getattr(response, "text", "") or "")
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        lowered = body_text.lower()
+        if status_code == 403 or "cloudflare" in lowered or "error code: 1010" in lowered:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="cloudflare_waf",
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail=f"Cloudflare/WAF rejection from BitMart futures write probe: HTTP {status_code}.",
+                prepared_request=prepared_request,
+            )
+        if status_code == 429:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="rate_limited_write_access",
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail="BitMart futures write probe was rate limited (HTTP 429).",
+                prepared_request=prepared_request,
+            )
+
+        payload: dict[str, Any] = {}
+        try:
+            parsed = response.json()
+            payload = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            payload = {}
+
+        code = payload.get("code")
+        message = str(payload.get("message") or body_text[:300] or "empty response body")
+        auth_terms = ("auth", "signature", "sign", "key", "permission", "unauthorized", "memo")
+        if status_code in {401, 403} or any(term in message.lower() for term in auth_terms):
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="auth_failed",
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail=f"BitMart futures write probe authentication failed: code={code} message={message!r}.",
+                prepared_request=prepared_request,
+            )
+
+        if status_code == 200 and code not in {None, 1000}:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="write_verified",
+                verified=True,
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail=(
+                    "Signed BitMart futures write endpoint reached exchange business validation "
+                    f"without a live-risking order: code={code} message={message!r}."
+                ),
+                prepared_request=prepared_request,
+            )
+
+        return FuturesWriteCapabilityCheck(
+            exchange=self.provider.name,
+            venue=self.exchange_id,
+            account_type=self.account_type,
+            status="unknown_write_failure",
+            request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+            detail=f"BitMart futures write probe returned HTTP {status_code}: {message!r}.",
+            prepared_request=prepared_request,
+        )
+
+    def check_futures_write_capability(
+        self,
+        *,
+        symbol: str = "BTCUSDT",
+        verify_remote: bool = False,
+    ) -> FuturesWriteCapabilityCheck:
+        """Probe BitMart futures signed-write plumbing without market exposure.
+
+        By default this only prepares a signed submit-order request and returns
+        ``dry_run_prepared``. Passing ``verify_remote=True`` sends a deliberately
+        invalid zero-size order to verify that the signed write path reaches
+        exchange business validation; it should not open a live position.
+        """
+
+        if self.exchange_id != "bitmart" or self.account_type not in {"contract", "futures", "swap"}:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="unknown_write_failure",
+                detail="Futures write capability smoke checks are currently implemented only for BitMart swap/futures accounts.",
+            )
+
+        self.require_credentials()
+        self._check_paper_mode_url()
+        body = {
+            "symbol": symbol,
+            "type": "market",
+            "side": 1,
+            "size": 0,
+            "open_type": os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross",
+        }
+        signed = self._build_bitmart_signed_futures_request(body)
+        safe_headers = dict(signed["headers"])
+        if safe_headers.get("X-BM-KEY"):
+            safe_headers["X-BM-KEY"] = "***"
+        if safe_headers.get("X-BM-SIGN"):
+            safe_headers["X-BM-SIGN"] = "***"
+        prepared_request = {
+            "method": "POST",
+            "url": signed["url"],
+            "path": _BITMART_DIRECT_FUTURES_ORDER_PATH,
+            "headers": safe_headers,
+            "body": body,
+        }
+        if not verify_remote:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="dry_run_prepared",
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail="Prepared signed BitMart futures write request; remote verification was not run.",
+                prepared_request=prepared_request,
+            )
+
+        try:
+            response = requests.post(
+                signed["url"],
+                data=signed["body_json"],
+                headers=signed["headers"],
+                timeout=30,
+            )
+        except Exception as exc:
+            return FuturesWriteCapabilityCheck(
+                exchange=self.provider.name,
+                venue=self.exchange_id,
+                account_type=self.account_type,
+                status="unknown_write_failure",
+                request_path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                detail=f"BitMart futures write probe failed before a response was received: {exc}",
+                prepared_request=prepared_request,
+            )
+        return self._classify_bitmart_write_response(response=response, prepared_request=prepared_request)
+
     def _submit_bitmart_swap_order(
         self,
         *,
@@ -486,22 +683,10 @@ class VenueExecutionClient:
         if not reduce_only:
             request["open_type"] = os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross"
 
-        body_json = json.dumps(request, separators=(",", ":"))
-        timestamp = str(int(time.time() * 1000))
-        signature_payload = f"{timestamp}#{self._memo}#{body_json}"
-        signature = hmac.new(self._secret.encode(), signature_payload.encode(), hashlib.sha256).hexdigest()
-        base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
-        url = f"{base_url}{_BITMART_DIRECT_FUTURES_ORDER_PATH}"
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": _BITMART_DIRECT_USER_AGENT,
-            "X-BM-KEY": self._api_key,
-            "X-BM-SIGN": signature,
-            "X-BM-TIMESTAMP": timestamp,
-        }
+        signed = self._build_bitmart_signed_futures_request(request)
         logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
         try:
-            response = requests.post(url, data=body_json, headers=headers, timeout=30)
+            response = requests.post(signed["url"], data=signed["body_json"], headers=signed["headers"], timeout=30)
         except Exception as exc:
             raise IntegrationError(f"BITMART submit-order request failed before a response was received: {exc}") from exc
 
@@ -578,9 +763,16 @@ class VenueExecutionClient:
         return [self._normalize_trade(trade) for trade in trades]
 
     def get_execution_status(self, *, order_id: str | None = None, symbol: str | None = None) -> ExecutionStatus:
+        signed_write_probe = None
+        if self.exchange_id == "bitmart" and self.account_type in {"contract", "futures", "swap"}:
+            signed_write_probe = lambda: self.check_futures_write_capability(
+                symbol=symbol or os.getenv("BITMART_WRITE_PROBE_SYMBOL", "BTCUSDT"),
+                verify_remote=_is_truthy_env(os.getenv("HERMES_BITMART_VERIFY_SIGNED_WRITES")),
+            ).verified
         readiness = classify_live_execution_readiness(
             self,
             private_read_probe=lambda: self.get_exchange_balances(),
+            signed_write_probe=signed_write_probe,
         )
         if not self.configured:
             return ExecutionStatus(
