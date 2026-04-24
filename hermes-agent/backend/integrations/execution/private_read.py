@@ -43,7 +43,7 @@ def _body_preview(response: Any) -> str:
 
 def _is_auth_error(code: Any, message: str) -> bool:
     text = f"{code} {message}".lower()
-    auth_terms = ("auth", "signature", "sign", "api key", "apikey", "unauthorized", "permission", "memo", "invalid key")
+    auth_terms = ("auth", "signature", "sign", "api key", "apikey", "credential", "uid", "unauthorized", "permission", "memo", "invalid key")
     return any(term in text for term in auth_terms)
 
 

@@ -79,6 +79,7 @@ def test_ccxt_direct_futures_balance_uses_private_read_classifier(monkeypatch: p
     monkeypatch.setenv("BITMART_API_KEY", "key")
     monkeypatch.setenv("BITMART_SECRET", "secret")
     monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
     client = CCXTExecutionClient()
 
     monkeypatch.setattr(
@@ -97,6 +98,7 @@ def test_venue_readiness_exposes_classified_ccxt_private_read_failure(monkeypatc
     monkeypatch.setenv("BITMART_API_KEY", "key")
     monkeypatch.setenv("BITMART_SECRET", "secret")
     monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
     monkeypatch.setenv("HERMES_TRADING_MODE", "live")
     monkeypatch.setenv("HERMES_ENABLE_LIVE_TRADING", "true")
     monkeypatch.setenv("HERMES_LIVE_TRADING_ACK", LIVE_TRADING_ACK_PHRASE)

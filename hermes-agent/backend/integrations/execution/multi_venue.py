@@ -128,7 +128,7 @@ _VENUE_DEFAULTS: dict[str, dict[str, Any]] = {
     "bitmart": {
         "provider_profile": "bitmart",
         "default_account_type": "swap",
-        "required_credentials": ("API_KEY", "SECRET", "MEMO"),
+        "required_credentials": ("API_KEY", "SECRET", "MEMO", "UID"),
         "live_urls": (
             "https://api-cloud-v2.bitmart.com",
             "https://api-cloud.bitmart.com",
@@ -172,6 +172,7 @@ class VenueExecutionClient:
         self._api_key = os.getenv(f"{self._env_prefix}_API_KEY", "").strip()
         self._secret = os.getenv(f"{self._env_prefix}_SECRET", "").strip()
         self._memo = os.getenv(f"{self._env_prefix}_MEMO", "").strip()
+        self._uid = os.getenv(f"{self._env_prefix}_UID", "").strip()
         self._password = os.getenv(f"{self._env_prefix}_PASSWORD", "").strip()
         self._exchange: Any | None = None
         self._public_exchange: Any | None = None
@@ -262,6 +263,8 @@ class VenueExecutionClient:
             config.update({"apiKey": self._api_key, "secret": self._secret})
             if self._memo:
                 config["memo"] = self._memo
+            if self._uid:
+                config["uid"] = self._uid
             if self._password or self._memo:
                 config["password"] = self._password or self._memo
             self._check_paper_mode_url()

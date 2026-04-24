@@ -22,6 +22,7 @@ def test_get_exchange_balances_fails_safely_without_credentials(monkeypatch):
     monkeypatch.delenv("BITMART_API_KEY", raising=False)
     monkeypatch.delenv("BITMART_SECRET", raising=False)
     monkeypatch.delenv("BITMART_MEMO", raising=False)
+    monkeypatch.delenv("BITMART_UID", raising=False)
 
     payload = get_exchange_balances({})
 
@@ -407,6 +408,7 @@ def test_bitmart_swap_orders_use_direct_rest_submission(monkeypatch):
     monkeypatch.setenv("BITMART_API_KEY", "key")
     monkeypatch.setenv("BITMART_SECRET", "secret")
     monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
 
     client = VenueExecutionClient("bitmart")
     assert client.account_type == "swap"

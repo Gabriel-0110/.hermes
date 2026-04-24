@@ -10,6 +10,7 @@ def _configured_bitmart_client(monkeypatch) -> VenueExecutionClient:
     monkeypatch.setenv("BITMART_API_KEY", "key")
     monkeypatch.setenv("BITMART_SECRET", "secret")
     monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
     monkeypatch.setenv("HERMES_TRADING_MODE", "live")
     monkeypatch.setenv("HERMES_ENABLE_LIVE_TRADING", "true")
     monkeypatch.setenv("HERMES_LIVE_TRADING_ACK", "I_ACKNOWLEDGE_LIVE_TRADING_RISK")
