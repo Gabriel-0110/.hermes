@@ -204,6 +204,205 @@ def test_place_order_passes_reduce_only_futures_close_flags(monkeypatch):
     assert payload["data"]["execution_request"]["position_side"] == "long"
 
 
+def test_place_order_blocks_bitmart_futures_when_readiness_is_not_api_ready(monkeypatch):
+    placed: list[dict[str, object]] = []
+
+    class FakeVenueClient:
+        exchange_id = "bitmart"
+        account_type = "swap"
+        provider = SimpleNamespace(name="BITMART")
+        credential_env_names = ["BITMART_API_KEY", "BITMART_SECRET", "BITMART_MEMO"]
+        configured = True
+
+        def __init__(self, venue):
+            assert venue == "bitmart"
+
+        def get_execution_status(self, *, order_id=None, symbol=None):
+            return SimpleNamespace(
+                readiness_status="read_only_live",
+                readiness={
+                    "status": "read_only_live",
+                    "private_reads_working": True,
+                    "signed_writes_verified": False,
+                    "signed_write_failure": "dry_run_prepared",
+                    "blockers": ["Signed BitMart write capability has not been verified."],
+                },
+                support_matrix={
+                    "readiness_state": "read_only_live",
+                    "write_failure_category": "dry_run_prepared",
+                    "blockers": ["Signed BitMart write capability has not been verified."],
+                },
+            )
+
+        def place_order(self, **kwargs):
+            placed.append(kwargs)
+            raise AssertionError("place_order must not be called")
+
+    monkeypatch.setattr(place_order_module, "select_order_venue", lambda **kwargs: {"selected_venue": "bitmart", "warnings": []})
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
+
+    payload = place_order({"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "amount": 1, "venue": "bitmart"})
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "execution_readiness_blocked"
+    assert payload["data"]["execution_result"]["status"] == "blocked"
+    assert payload["data"]["execution_result"]["reason"] == "execution_failed"
+    assert payload["data"]["execution_result"]["payload"]["readiness_status"] == "read_only_live"
+    assert placed == []
+
+
+def test_place_order_blocks_bitmart_futures_when_private_reads_are_degraded(monkeypatch):
+    class FakeVenueClient:
+        exchange_id = "bitmart"
+        account_type = "swap"
+        provider = SimpleNamespace(name="BITMART")
+        credential_env_names = ["BITMART_API_KEY", "BITMART_SECRET", "BITMART_MEMO"]
+        configured = True
+
+        def __init__(self, venue):
+            assert venue == "bitmart"
+
+        def get_execution_status(self, *, order_id=None, symbol=None):
+            return SimpleNamespace(
+                readiness_status="degraded_private_access",
+                readiness={
+                    "status": "degraded_private_access",
+                    "private_reads_working": False,
+                    "private_read_failure": "cloudflare_waf",
+                    "signed_writes_verified": False,
+                    "blockers": ["Private BitMart read probe failed."],
+                },
+                support_matrix={
+                    "readiness_state": "degraded_private_access",
+                    "read_failure_category": "cloudflare_waf",
+                    "blockers": ["Private BitMart read probe failed."],
+                },
+            )
+
+        def place_order(self, **kwargs):
+            raise AssertionError("place_order must not be called")
+
+    monkeypatch.setattr(place_order_module, "select_order_venue", lambda **kwargs: {"selected_venue": "bitmart", "warnings": []})
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
+
+    payload = place_order({"symbol": "BTCUSDT", "side": "sell", "order_type": "market", "amount": 1, "venue": "bitmart"})
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "execution_readiness_blocked"
+    assert payload["data"]["execution_result"]["payload"]["readiness_status"] == "degraded_private_access"
+    assert payload["data"]["execution_result"]["payload"]["support_matrix"]["read_failure_category"] == "cloudflare_waf"
+
+
+def test_place_order_allows_bitmart_futures_only_when_readiness_is_api_ready(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeVenueClient:
+        exchange_id = "bitmart"
+        account_type = "swap"
+        provider = SimpleNamespace(name="BITMART")
+        credential_env_names = ["BITMART_API_KEY", "BITMART_SECRET", "BITMART_MEMO"]
+        configured = True
+
+        def __init__(self, venue):
+            assert venue == "bitmart"
+
+        def get_execution_status(self, *, order_id=None, symbol=None):
+            return SimpleNamespace(
+                readiness_status="api_execution_ready",
+                readiness={"status": "api_execution_ready", "signed_writes_verified": True},
+                support_matrix={"readiness_state": "api_execution_ready", "blockers": []},
+            )
+
+        def place_order(self, **kwargs):
+            captured.update(kwargs)
+            return ExecutionOrder(
+                order_id="ord-ready-1",
+                exchange="BITMART",
+                symbol=kwargs["symbol"],
+                side=kwargs["side"],
+                order_type=kwargs["order_type"],
+                amount=kwargs["amount"],
+                status="submitted",
+            )
+
+    monkeypatch.setattr(place_order_module, "select_order_venue", lambda **kwargs: {"selected_venue": "bitmart", "warnings": []})
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
+
+    payload = place_order(
+        {
+            "symbol": "BTCUSDT",
+            "side": "sell",
+            "order_type": "market",
+            "amount": 1,
+            "close_only": True,
+            "position_side": "long",
+            "venue": "bitmart",
+        }
+    )
+
+    assert payload["meta"]["ok"] is True
+    assert payload["data"]["order_id"] == "ord-ready-1"
+    assert captured["reduce_only"] is True
+    assert captured["position_side"] == "long"
+
+
+def test_place_order_preserves_approval_gate_before_readiness_check(monkeypatch):
+    class FakeVenueClient:
+        def __init__(self, venue):
+            raise AssertionError("Venue client should not be constructed before approval is satisfied")
+
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=True,
+        ),
+    )
+
+    payload = place_order({"symbol": "BTCUSDT", "side": "buy", "amount": 1, "venue": "bitmart"})
+
+    assert payload["meta"]["ok"] is False
+    assert payload["data"]["error"] == "approval_required"
+
+
 def test_bitmart_swap_orders_use_direct_rest_submission(monkeypatch):
     monkeypatch.setenv("BITMART_API_KEY", "key")
     monkeypatch.setenv("BITMART_SECRET", "secret")

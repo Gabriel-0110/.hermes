@@ -35,7 +35,16 @@ class PlaceOrderInput(BaseModel):
             raise ValueError("post_only is not supported for market orders")
         if self.close_only:
             self.reduce_only = True
+        if self.reduce_only and self.position_side is None:
+            raise ValueError("position_side is required for reduce-only BitMart futures close orders")
         return self
+
+
+def _is_bitmart_direct_futures_client(client: object) -> bool:
+    return (
+        getattr(client, "exchange_id", None) == "bitmart"
+        and getattr(client, "account_type", None) in {"contract", "futures", "swap"}
+    )
 
 
 def place_order(payload: dict | None = None) -> dict:
@@ -157,6 +166,47 @@ def place_order(payload: dict | None = None) -> dict:
                 warnings=[f"{client.provider.name} credentials are not configured in the backend environment."],
                 ok=False,
             )
+        if _is_bitmart_direct_futures_client(client):
+            status = client.get_execution_status(symbol=args.symbol)
+            if getattr(status, "readiness_status", None) != "api_execution_ready":
+                support_matrix = getattr(status, "support_matrix", None)
+                readiness = getattr(status, "readiness", None)
+                blockers = []
+                if isinstance(support_matrix, dict):
+                    blockers = list(support_matrix.get("blockers") or [])
+                if not blockers and isinstance(readiness, dict):
+                    blockers = list(readiness.get("blockers") or [])
+                detail = (
+                    "BitMart direct futures execution requires readiness_status='api_execution_ready'. "
+                    f"Current readiness_status={getattr(status, 'readiness_status', None)!r}."
+                )
+                outcome = ExecutionOutcome.from_result(
+                    request,
+                    ExecutionResult.blocked(
+                        symbol=request.symbol,
+                        execution_mode="live",
+                        reason=RiskRejectionReason.EXECUTION_FAILED,
+                        error_message=detail,
+                        payload={
+                            "failure_stage": "execution_readiness",
+                            "readiness_status": getattr(status, "readiness_status", None),
+                            "readiness": readiness,
+                            "support_matrix": support_matrix,
+                        },
+                    ),
+                )
+                return envelope(
+                    "place_order",
+                    [provider_error(client.provider.name, detail)],
+                    {
+                        "error": "execution_readiness_blocked",
+                        "detail": detail,
+                        "execution_request": outcome.request.model_dump(mode="json"),
+                        "execution_result": outcome.result.model_dump(mode="json"),
+                    },
+                    warnings=blockers or [detail],
+                    ok=False,
+                )
         order = client.place_order(
             symbol=args.symbol,
             side=args.side,
