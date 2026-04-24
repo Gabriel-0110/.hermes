@@ -9,10 +9,12 @@ from backend.models import WalletData, WalletTransaction
 
 class EtherscanClient(BaseIntegrationClient):
     provider = PROVIDER_PROFILES["etherscan"]
-    base_url = "https://api.etherscan.io/api"
+    # Updated to Etherscan API V2 — V1 (api.etherscan.io/api) is deprecated
+    base_url = "https://api.etherscan.io/v2/api"
 
     def auth_params(self) -> dict[str, str]:
-        return {"apikey": self._api_key}
+        # V2 requires chainid param; default to Ethereum mainnet (chainid=1)
+        return {"apikey": self._api_key, "chainid": "1"}
 
     def get_wallet_transactions(self, wallet: str, startblock: int = 0, endblock: int = 99999999) -> list[WalletTransaction]:
         payload = self.request(
@@ -25,10 +27,13 @@ class EtherscanClient(BaseIntegrationClient):
                 "startblock": startblock,
                 "endblock": endblock,
                 "sort": "desc",
+                "offset": "20",
             },
         )
         txs: list[WalletTransaction] = []
-        for row in payload.get("result", [])[:20]:
+        for row in (payload.get("result") or [])[:20]:
+            if not isinstance(row, dict):
+                continue
             txs.append(
                 WalletTransaction(
                     tx_hash=row.get("hash", ""),

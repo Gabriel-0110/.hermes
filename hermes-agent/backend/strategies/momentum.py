@@ -6,6 +6,9 @@ golden/death-cross alignment, MACD histogram direction, and regime alignment.
 
 from __future__ import annotations
 
+from typing import Any
+
+from backend.strategies.funding import apply_funding_rate_modifier
 from backend.strategies.registry import ScoredCandidate, STRATEGY_REGISTRY
 
 
@@ -16,6 +19,7 @@ def score_momentum(
     symbol: str,
     indicator_data: dict,
     regime: str = "unknown",
+    funding_data: Any | None = None,
 ) -> ScoredCandidate:
     """Score `symbol` with the momentum strategy.
 
@@ -95,6 +99,14 @@ def score_momentum(
     elif "bear" in regime_lower or "risk_off" in regime_lower:
         score -= 0.05
         reasons.append(f"Regime headwind: {regime}")
+
+    # Funding carry/crowding modifier (small nudge, not standalone signal)
+    score = apply_funding_rate_modifier(
+        symbol=symbol,
+        score=score,
+        reasons=reasons,
+        funding_data=funding_data,
+    )
 
     confidence = round(min(max(score, 0.01), 0.95), 2)
 

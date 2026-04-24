@@ -6,6 +6,9 @@ relative to the 20-period moving average, and Bollinger Band proximity.
 
 from __future__ import annotations
 
+from typing import Any
+
+from backend.strategies.funding import apply_funding_rate_modifier
 from backend.strategies.registry import ScoredCandidate, STRATEGY_REGISTRY
 
 
@@ -16,6 +19,7 @@ def score_mean_reversion(
     symbol: str,
     indicator_data: dict,
     regime: str = "unknown",
+    funding_data: Any | None = None,
 ) -> ScoredCandidate:
     """Score `symbol` with the mean-reversion strategy.
 
@@ -115,6 +119,14 @@ def score_mean_reversion(
         # Strong trend reduces reversion probability
         score *= 0.7
         reasons.append(f"Caution: strong trend regime ({regime}) reduces reversion probability")
+
+    # Funding carry/crowding modifier (small nudge, not standalone signal)
+    score = apply_funding_rate_modifier(
+        symbol=symbol,
+        score=score,
+        reasons=reasons,
+        funding_data=funding_data,
+    )
 
     confidence = round(min(max(abs(score), 0.01), 0.95), 2)
 

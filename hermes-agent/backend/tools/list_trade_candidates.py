@@ -14,6 +14,7 @@ from backend.strategies.momentum import score_momentum
 from backend.strategies.mean_reversion import score_mean_reversion
 from backend.strategies.breakout import score_breakout
 from backend.tools._helpers import envelope, run_tool
+from backend.tools.get_funding_rates import get_funding_rates
 from backend.tools.get_indicator_snapshot import get_indicator_snapshot
 from backend.tools.get_market_overview import get_market_overview
 from backend.tools.get_ohlcv import get_ohlcv
@@ -32,6 +33,7 @@ def list_trade_candidates(_: dict | None = None) -> dict:
 
         candidates: list[tuple[ScoredCandidate, str]] = []  # (candidate, strategy_name)
         warnings: list[str] = []
+        funding_data = _fetch_funding_rates_for_symbols(_SCAN_SYMBOLS)
 
         for raw_symbol in _SCAN_SYMBOLS:
             clean = raw_symbol.split("/")[0]
@@ -54,11 +56,11 @@ def list_trade_candidates(_: dict | None = None) -> dict:
                 for strategy_name in STRATEGY_REGISTRY:
                     try:
                         if strategy_name == "momentum":
-                            s = score_momentum(clean, ind_data, regime)
+                            s = score_momentum(clean, ind_data, regime, funding_data=funding_data)
                         elif strategy_name == "mean_reversion":
-                            s = score_mean_reversion(clean, ind_data, regime)
+                            s = score_mean_reversion(clean, ind_data, regime, funding_data=funding_data)
                         elif strategy_name == "breakout":
-                            s = score_breakout(clean, ind_data, ohlcv_bars=ohlcv_bars, regime=regime)
+                            s = score_breakout(clean, ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data)
                         else:
                             continue
                         scored.append(s)
@@ -143,6 +145,33 @@ def _persist_evaluations(candidates: list[ScoredCandidate]) -> None:
             session.add_all(rows)
     except Exception as exc:
         logger.debug("list_trade_candidates: evaluation persist failed (non-critical): %s", exc)
+
+
+def _fetch_funding_rates_for_symbols(symbols: list[str]) -> dict[str, float]:
+    try:
+        normalized = []
+        for raw in symbols:
+            clean = raw.upper().replace("/", "").replace("USD", "USDT")
+            normalized.append(clean if clean.endswith("USDT") else f"{clean}USDT")
+        resp = get_funding_rates({"symbols": normalized, "limit": max(len(normalized), 1)})
+        data = resp.get("data", {}) if resp.get("ok") or "data" in resp else {}
+        entries = data.get("symbols", []) if isinstance(data, dict) else []
+        out: dict[str, float] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            symbol = str(entry.get("symbol") or "").upper()
+            try:
+                rate = float(entry.get("funding_rate"))
+            except (TypeError, ValueError):
+                continue
+            clean = symbol.replace("USDT", "").replace("USD", "")
+            out[clean] = rate
+            out[symbol] = rate
+        return out
+    except Exception as exc:
+        logger.debug("list_trade_candidates: funding-rate fetch failed: %s", exc)
+        return {}
 
 
 def _f(v: object) -> float | None:

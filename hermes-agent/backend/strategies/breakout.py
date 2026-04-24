@@ -7,6 +7,9 @@ to its rolling average, Bollinger Band width compression, volume surge, and
 
 from __future__ import annotations
 
+from typing import Any
+
+from backend.strategies.funding import apply_funding_rate_modifier
 from backend.strategies.registry import ScoredCandidate, STRATEGY_REGISTRY
 
 
@@ -19,6 +22,7 @@ def score_breakout(
     ohlcv_bars: list[dict] | None = None,
     order_book_data: dict | None = None,
     regime: str = "unknown",
+    funding_data: Any | None = None,
 ) -> ScoredCandidate:
     """Score `symbol` with the breakout strategy.
 
@@ -133,6 +137,14 @@ def score_breakout(
     elif "bear" in regime_lower or "risk_off" in regime_lower:
         score -= 0.05
         reasons.append(f"Bearish regime headwind for breakout: {regime}")
+
+    # Funding carry/crowding modifier (small nudge, not standalone signal)
+    score = apply_funding_rate_modifier(
+        symbol=symbol,
+        score=score,
+        reasons=reasons,
+        funding_data=funding_data,
+    )
 
     confidence = round(min(max(score, 0.01), 0.95), 2)
 

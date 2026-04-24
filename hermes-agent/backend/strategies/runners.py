@@ -62,6 +62,34 @@ def _fetch_ohlcv(symbol: str, timeframe: str = "4h", limit: int = 30) -> list[di
         return []
 
 
+def _fetch_funding_rates(universe: list[str]) -> dict[str, float]:
+    """Return symbol→funding_rate map for *universe* using public derivatives data."""
+    try:
+        from backend.tools.get_funding_rates import get_funding_rates  # type: ignore[import]
+
+        symbols = [s.upper().replace("/", "").replace("USD", "USDT") for s in universe]
+        normalized = [s if s.endswith("USDT") else f"{s}USDT" for s in symbols]
+        resp = get_funding_rates({"symbols": normalized, "limit": max(len(normalized), 1)})
+        data = resp.get("data", {}) if resp.get("ok") or "data" in resp else {}
+        entries = data.get("symbols", []) if isinstance(data, dict) else []
+        out: dict[str, float] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            symbol = str(entry.get("symbol") or "").upper()
+            try:
+                rate = float(entry.get("funding_rate"))
+            except (TypeError, ValueError):
+                continue
+            clean = symbol.replace("USDT", "").replace("USD", "")
+            out[clean] = rate
+            out[symbol] = rate
+        return out
+    except Exception as exc:
+        logger.warning("runners: get_funding_rates failed for %s: %s", universe, exc)
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Momentum runner
 # ---------------------------------------------------------------------------
@@ -89,10 +117,11 @@ class MomentumBotRunner(StrategyBotRunner):
 
     def scan(self, universe: list[str]) -> list[ScoredCandidate]:
         regime = _fetch_regime()
+        funding_data = _fetch_funding_rates(universe)
         candidates: list[ScoredCandidate] = []
         for symbol in universe:
             indicators = _fetch_indicators(symbol)
-            candidate = score_momentum(symbol, indicators, regime=regime)
+            candidate = score_momentum(symbol, indicators, regime=regime, funding_data=funding_data)
             logger.debug(
                 "momentum_runner: symbol=%s direction=%s confidence=%.2f",
                 symbol,
@@ -124,10 +153,11 @@ class MeanReversionBotRunner(StrategyBotRunner):
     min_confidence = 0.30
 
     def scan(self, universe: list[str]) -> list[ScoredCandidate]:
+        funding_data = _fetch_funding_rates(universe)
         candidates: list[ScoredCandidate] = []
         for symbol in universe:
             indicators = _fetch_indicators(symbol)
-            candidate = score_mean_reversion(symbol, indicators)
+            candidate = score_mean_reversion(symbol, indicators, funding_data=funding_data)
             logger.debug(
                 "mean_reversion_runner: symbol=%s direction=%s confidence=%.2f",
                 symbol,
@@ -161,11 +191,12 @@ class BreakoutBotRunner(StrategyBotRunner):
 
     def scan(self, universe: list[str]) -> list[ScoredCandidate]:
         regime = _fetch_regime()
+        funding_data = _fetch_funding_rates(universe)
         candidates: list[ScoredCandidate] = []
         for symbol in universe:
             indicators = _fetch_indicators(symbol)
             ohlcv = _fetch_ohlcv(symbol, timeframe="4h", limit=30)
-            candidate = score_breakout(symbol, indicators, ohlcv_bars=ohlcv, regime=regime)
+            candidate = score_breakout(symbol, indicators, ohlcv_bars=ohlcv, regime=regime, funding_data=funding_data)
             logger.debug(
                 "breakout_runner: symbol=%s direction=%s confidence=%.2f",
                 symbol,

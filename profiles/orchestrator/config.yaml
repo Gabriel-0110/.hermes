@@ -273,8 +273,11 @@ approvals:
   mode: manual
   timeout: 60
 command_allowlist:
+- script execution via -e/-c flag
 - delete in root path
+- script execution via heredoc
 - shell command via -c/-lc flag
+- force kill processes
 quick_commands: {}
 personalities: {}
 security:
@@ -412,7 +415,8 @@ platforms:
   telegram:
     extra:
       require_mention: true
-      free_response_chats: []
+      free_response_chats:
+      - '-1003884349508'
 model_aliases:
   orchestrator-default:
     model: orchestrator-default

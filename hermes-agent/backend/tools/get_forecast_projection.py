@@ -1,18 +1,23 @@
 """Research-owned time-series projection tool.
 
-This tool intentionally exposes a normalized forecast package rather than raw
-Chronos internals. If a Chronos runtime is installed later, it can replace the
-deterministic fallback behind the same contract.
+Uses Amazon Chronos-2 (installed in .venv) for ML-grade probabilistic forecasts.
+Falls back to a deterministic drift+volatility projection if Chronos is unavailable.
 """
 
 from __future__ import annotations
 
+import logging
 from statistics import mean, pstdev
 
 from pydantic import BaseModel, Field
 
-from backend.tools._helpers import envelope, provider_error, provider_ok, run_tool, validate
+from backend.tools._helpers import envelope, provider_ok, run_tool, validate
 from backend.tools.get_ohlcv import get_ohlcv
+
+logger = logging.getLogger(__name__)
+
+# Chronos model to use — tiny is fast on CPU, mini is more accurate
+CHRONOS_MODEL = "amazon/chronos-t5-tiny"
 
 
 class GetForecastProjectionInput(BaseModel):
@@ -22,7 +27,41 @@ class GetForecastProjectionInput(BaseModel):
     horizon: int = Field(default=12, ge=1, le=60)
 
 
-def _scenario_projection(closes: list[float], horizon: int) -> list[dict[str, float | int]]:
+def _chronos_projection(closes: list[float], horizon: int) -> list[dict[str, float | int]]:
+    """Run Chronos-2 probabilistic forecast. Returns low/median/high scenarios."""
+    import torch
+    import numpy as np
+    from chronos import BaseChronosPipeline
+
+    pipeline = BaseChronosPipeline.from_pretrained(
+        CHRONOS_MODEL,
+        device_map="cpu",
+        dtype=torch.float32,
+    )
+    context = torch.tensor(closes, dtype=torch.float32).unsqueeze(0)
+    # num_samples=20 for fast CPU inference; increase for more accuracy
+    forecast = pipeline.predict(context, prediction_length=horizon, num_samples=20)
+    samples = forecast[0].numpy()  # shape: (num_samples, horizon)
+
+    scenarios = []
+    for step in range(horizon):
+        step_samples = samples[:, step]
+        scenarios.append({
+            "step": step + 1,
+            "low": round(float(max(float(import_np_quantile(step_samples, 0.1)), 0.0)), 8),
+            "median": round(float(max(float(import_np_quantile(step_samples, 0.5)), 0.0)), 8),
+            "high": round(float(max(float(import_np_quantile(step_samples, 0.9)), 0.0)), 8),
+        })
+    return scenarios
+
+
+def import_np_quantile(arr, q):
+    import numpy as np
+    return np.quantile(arr, q)
+
+
+def _deterministic_projection(closes: list[float], horizon: int) -> list[dict[str, float | int]]:
+    """Fallback: simple drift + volatility projection."""
     returns = []
     for idx in range(1, len(closes)):
         prev = closes[idx - 1]
@@ -39,14 +78,12 @@ def _scenario_projection(closes: list[float], horizon: int) -> list[dict[str, fl
         median *= 1 + drift
         low *= 1 + drift - volatility
         high *= 1 + drift + volatility
-        scenarios.append(
-            {
-                "step": step,
-                "low": round(max(low, 0.0), 8),
-                "median": round(max(median, 0.0), 8),
-                "high": round(max(high, 0.0), 8),
-            }
-        )
+        scenarios.append({
+            "step": step,
+            "low": round(max(low, 0.0), 8),
+            "median": round(max(median, 0.0), 8),
+            "high": round(max(high, 0.0), 8),
+        })
     return scenarios
 
 
@@ -93,17 +130,24 @@ def get_forecast_projection(payload: dict) -> dict:
                 ok=False,
             )
 
+        # Try Chronos-2 first, fall back to deterministic
         chronos_available = False
+        projections = None
+        warnings = []
+
         try:
-            import chronos  # type: ignore  # noqa: F401
-
+            projections = _chronos_projection(closes, args.horizon)
             chronos_available = True
-        except Exception:
-            chronos_available = False
+            logger.info("get_forecast_projection: Chronos-2 inference succeeded for %s", args.symbol)
+        except Exception as exc:
+            logger.warning("get_forecast_projection: Chronos-2 failed (%s), using deterministic fallback", exc)
+            warnings.append(f"Chronos-2 inference failed ({exc}); using deterministic fallback.")
 
-        projections = _scenario_projection(closes, args.horizon)
+        if not chronos_available or projections is None:
+            projections = _deterministic_projection(closes, args.horizon)
+
         provider = "amazon_chronos_2" if chronos_available else "deterministic_research_projection"
-        warnings = [] if chronos_available else ["Chronos-2 runtime not installed; returned deterministic fallback projection."]
+
         return envelope(
             "get_forecast_projection",
             [provider_ok(provider)],

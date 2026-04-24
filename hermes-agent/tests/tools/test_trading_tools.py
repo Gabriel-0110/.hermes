@@ -19,6 +19,7 @@ def test_trading_toolset_registers_expected_tools():
         "get_recent_tradingview_alerts",
         "get_pending_signal_events",
         "get_tradingview_alert_context",
+        "delegate_task",
     }
 
 

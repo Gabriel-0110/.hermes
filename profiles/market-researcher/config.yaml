@@ -310,6 +310,18 @@ mcp_servers:
     args:
     - /Users/openclaw/Coding/tradingview-mcp-jackson/src/server.js
     enabled: true
+  tavily:
+    url: http://localhost:3300/mcp
+    timeout: 180
+    connect_timeout: 30
+  firecrawl:
+    url: http://localhost:3301/mcp
+    timeout: 180
+    connect_timeout: 30
+  exa:
+    url: http://localhost:3302/mcp
+    timeout: 180
+    connect_timeout: 30
 custom_providers:
 - name: Local (localhost:11434)
   base_url: http://localhost:11434/v1

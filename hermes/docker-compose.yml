@@ -25,8 +25,8 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hermes:hermes@postgres:5432/hermes}
+      POSTGRES_HOST: ${POSTGRES_HOST:-timescaledb}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hermes:hermes@timescaledb:5432/hermes_trading}
     ports:
       - "8000:8000"
     depends_on:

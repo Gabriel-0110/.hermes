@@ -15,6 +15,7 @@ from backend.db import ensure_time_series_schema, session_scope
 from backend.db.models import StrategyEvaluationRow
 from backend.db.session import get_engine
 from backend.tools._helpers import envelope, provider_ok, run_tool, validate
+from backend.tools.get_funding_rates import get_funding_rates
 from backend.tools.get_indicator_snapshot import get_indicator_snapshot
 from backend.tools.get_market_overview import get_market_overview
 from backend.tools.get_ohlcv import get_ohlcv
@@ -53,20 +54,27 @@ def evaluate_strategy(payload: dict) -> dict:
         ind_resp = get_indicator_snapshot({"symbol": indicator_symbol, "interval": args.timeframe})
         ind_data = ind_resp.get("data", {}) if ind_resp.get("ok") else {}
 
+        funding_data = {}
+        try:
+            funding_resp = get_funding_rates({"symbols": [raw_symbol.replace("/", "").replace("USD", "USDT")], "limit": 1})
+            funding_data = funding_resp.get("data", {}) if funding_resp.get("ok") or "data" in funding_resp else {}
+        except Exception as exc:
+            logger.debug("evaluate_strategy: funding-rate fetch failed for %s: %s", raw_symbol, exc)
+
         # Run selected strategy scorer
         name = args.strategy_name
         if name == "momentum":
-            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime)
+            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
         elif name == "mean_reversion":
-            candidate = score_mean_reversion(raw_symbol.split("/")[0], ind_data, regime)
+            candidate = score_mean_reversion(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
         elif name == "breakout":
             # Fetch OHLCV for volume analysis
             ohlcv_resp = get_ohlcv({"symbol": indicator_symbol, "interval": args.timeframe, "limit": 30})
             ohlcv_bars = ohlcv_resp.get("data", []) if ohlcv_resp.get("ok") else []
-            candidate = score_breakout(raw_symbol.split("/")[0], ind_data, ohlcv_bars=ohlcv_bars, regime=regime)
+            candidate = score_breakout(raw_symbol.split("/")[0], ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data)
         else:
             # Fallback — should not reach here due to registry check above
-            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime)
+            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
 
         # Persist evaluation
         now = datetime.now(UTC)
