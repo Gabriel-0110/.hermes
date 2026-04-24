@@ -38,6 +38,7 @@ class LiveExecutionReadiness(BaseModel):
     private_reads_working: bool
     private_read_failure: str | None = None
     signed_writes_verified: bool
+    signed_write_failure: str | None = None
     copy_trading_api_supported: bool = False
     copy_trading_api_verified: bool = False
     blockers: list[str] = Field(default_factory=list)
@@ -77,6 +78,7 @@ def classify_live_execution_readiness(
             private_reads_working=False,
             private_read_failure=None,
             signed_writes_verified=False,
+            signed_write_failure=None,
             blockers=blockers,
         )
 
@@ -92,6 +94,7 @@ def classify_live_execution_readiness(
             private_reads_working=False,
             private_read_failure=None,
             signed_writes_verified=False,
+            signed_write_failure=None,
             blockers=[f"{exchange_label} credentials are not configured. Missing one or more of: {missing}."],
         )
 
@@ -110,14 +113,23 @@ def classify_live_execution_readiness(
             private_reads_working=False,
             private_read_failure=failure,
             signed_writes_verified=False,
+            signed_write_failure=None,
             blockers=[f"Private {exchange_label} read probe failed [{failure}]: {exc}"],
         )
 
     write_verified = False
+    write_failure: str | None = None
     if signed_write_probe is not None:
         try:
-            write_verified = bool(signed_write_probe())
+            write_result = signed_write_probe()
+            if isinstance(write_result, bool):
+                write_verified = write_result
+            else:
+                write_verified = bool(getattr(write_result, "verified", False))
+                status = getattr(write_result, "status", None)
+                write_failure = None if write_verified else str(status or "unknown_write_failure")
         except Exception as exc:
+            write_failure = str(getattr(exc, "classification", None) or getattr(exc, "status", None) or "unknown_write_failure")
             return LiveExecutionReadiness(
                 exchange=exchange,
                 venue=client.exchange_id,
@@ -128,7 +140,8 @@ def classify_live_execution_readiness(
                 private_reads_working=True,
                 private_read_failure=None,
                 signed_writes_verified=False,
-                blockers=[f"Signed {exchange_label} write probe failed: {exc}"],
+                signed_write_failure=write_failure,
+                blockers=[f"Signed {exchange_label} write probe failed [{write_failure}]: {exc}"],
             )
 
     if write_verified:
@@ -142,8 +155,14 @@ def classify_live_execution_readiness(
             private_reads_working=True,
             private_read_failure=None,
             signed_writes_verified=True,
+            signed_write_failure=None,
         )
 
+    blocker = (
+        f"Signed {exchange_label} write capability check failed [{write_failure}]."
+        if write_failure
+        else f"Signed {exchange_label} write capability has not been verified."
+    )
     return LiveExecutionReadiness(
         exchange=exchange,
         venue=client.exchange_id,
@@ -154,5 +173,23 @@ def classify_live_execution_readiness(
         private_reads_working=True,
         private_read_failure=None,
         signed_writes_verified=False,
-        blockers=[f"Signed {exchange_label} write capability has not been verified."],
+        signed_write_failure=write_failure,
+        blockers=[blocker],
     )
+
+
+def execution_support_matrix(readiness: LiveExecutionReadiness) -> dict[str, Any]:
+    """Flatten readiness into an operator-facing support matrix."""
+
+    return {
+        "live_env_unlocked": readiness.live_env_unlocked,
+        "credentials_configured": readiness.credentials_configured,
+        "private_futures_reads_working": readiness.private_reads_working,
+        "signed_futures_writes_verified": readiness.signed_writes_verified,
+        "readiness_state": readiness.status,
+        "read_failure_category": readiness.private_read_failure,
+        "write_failure_category": readiness.signed_write_failure,
+        "copy_trading_api_automation_supported": readiness.copy_trading_api_supported,
+        "copy_trading_api_automation_verified": readiness.copy_trading_api_verified,
+        "blockers": list(readiness.blockers),
+    }

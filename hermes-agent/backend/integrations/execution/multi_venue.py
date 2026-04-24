@@ -25,7 +25,7 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_order,
     normalize_ccxt_trade,
 )
-from backend.integrations.execution.readiness import classify_live_execution_readiness
+from backend.integrations.execution.readiness import classify_live_execution_readiness, execution_support_matrix
 from backend.integrations.execution.private_read import ClassifiedPrivateReadError, classify_private_read_exception
 from backend.observability.service import get_observability_service
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
@@ -1013,7 +1013,7 @@ class VenueExecutionClient:
             signed_write_probe = lambda: self.check_futures_write_capability(
                 symbol=symbol or os.getenv("BITMART_WRITE_PROBE_SYMBOL", "BTCUSDT"),
                 verify_remote=_is_truthy_env(os.getenv("HERMES_BITMART_VERIFY_SIGNED_WRITES")),
-            ).verified
+            )
         readiness = classify_live_execution_readiness(
             self,
             private_read_probe=lambda: self.get_exchange_balances(),
@@ -1028,6 +1028,7 @@ class VenueExecutionClient:
                 account_type=self.account_type,
                 readiness_status=readiness.status,
                 readiness=readiness.model_dump(mode="json"),
+                support_matrix=execution_support_matrix(readiness),
                 detail=f"{self.provider.name} credentials are not configured.",
                 checked_at=datetime.now(timezone.utc).isoformat(),
             )
@@ -1046,6 +1047,7 @@ class VenueExecutionClient:
             account_type=self.account_type,
             readiness_status=readiness.status,
             readiness=readiness.model_dump(mode="json"),
+            support_matrix=execution_support_matrix(readiness),
             detail=detail,
             order=order,
             checked_at=datetime.now(timezone.utc).isoformat(),

@@ -128,6 +128,18 @@ def test_execution_status_tool_exposes_readiness_classification(monkeypatch: pyt
                     "account_type": "swap",
                     "readiness_status": readiness.status,
                     "readiness": readiness.model_dump(mode="json"),
+                    "support_matrix": {
+                        "live_env_unlocked": readiness.live_env_unlocked,
+                        "credentials_configured": readiness.credentials_configured,
+                        "private_futures_reads_working": readiness.private_reads_working,
+                        "signed_futures_writes_verified": readiness.signed_writes_verified,
+                        "readiness_state": readiness.status,
+                        "read_failure_category": readiness.private_read_failure,
+                        "write_failure_category": readiness.signed_write_failure,
+                        "copy_trading_api_automation_supported": readiness.copy_trading_api_supported,
+                        "copy_trading_api_automation_verified": readiness.copy_trading_api_verified,
+                        "blockers": readiness.blockers,
+                    },
                     "detail": "BitMart execution readiness: api_execution_ready.",
                     "order": None,
                     "checked_at": readiness.checked_at,
@@ -141,3 +153,5 @@ def test_execution_status_tool_exposes_readiness_classification(monkeypatch: pyt
     assert payload["meta"]["ok"] is True
     assert payload["data"]["readiness_status"] == "api_execution_ready"
     assert payload["data"]["readiness"]["copy_trading_api_supported"] is False
+    assert payload["data"]["support_matrix"]["readiness_state"] == "api_execution_ready"
+    assert payload["data"]["support_matrix"]["copy_trading_api_automation_supported"] is False

@@ -21,7 +21,7 @@ from backend.integrations.execution.normalization import (
     normalize_ccxt_order,
     normalize_ccxt_trade,
 )
-from backend.integrations.execution.readiness import classify_live_execution_readiness
+from backend.integrations.execution.readiness import classify_live_execution_readiness, execution_support_matrix
 from backend.integrations.execution.private_read import (
     ClassifiedPrivateReadError,
     classify_private_read_exception,
@@ -506,6 +506,7 @@ class CCXTExecutionClient:
                 account_type=self.account_type,
                 readiness_status=readiness.status,
                 readiness=readiness.model_dump(mode="json"),
+                support_matrix=execution_support_matrix(readiness),
                 detail="BitMart credentials are not configured.",
                 checked_at=datetime.now(timezone.utc).isoformat(),
             )
@@ -524,6 +525,7 @@ class CCXTExecutionClient:
             account_type=self.account_type,
             readiness_status=readiness.status,
             readiness=readiness.model_dump(mode="json"),
+            support_matrix=execution_support_matrix(readiness),
             detail=detail,
             order=order,
             checked_at=datetime.now(timezone.utc).isoformat(),

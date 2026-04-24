@@ -147,6 +147,18 @@ def test_execution_readiness_does_not_treat_dry_run_write_probe_as_ready(monkeyp
     assert status.readiness_status == "read_only_live"
     assert status.readiness is not None
     assert status.readiness["signed_writes_verified"] is False
+    assert status.readiness["signed_write_failure"] == "dry_run_prepared"
+    assert status.support_matrix is not None
+    assert status.support_matrix["live_env_unlocked"] is True
+    assert status.support_matrix["credentials_configured"] is True
+    assert status.support_matrix["private_futures_reads_working"] is True
+    assert status.support_matrix["signed_futures_writes_verified"] is False
+    assert status.support_matrix["readiness_state"] == "read_only_live"
+    assert status.support_matrix["read_failure_category"] is None
+    assert status.support_matrix["write_failure_category"] == "dry_run_prepared"
+    assert status.support_matrix["copy_trading_api_automation_supported"] is False
+    assert status.support_matrix["copy_trading_api_automation_verified"] is False
+    assert status.support_matrix["blockers"]
 
 
 def test_execution_readiness_can_reach_api_ready_after_remote_write_verification(monkeypatch) -> None:
@@ -170,3 +182,32 @@ def test_execution_readiness_can_reach_api_ready_after_remote_write_verification
     assert status.readiness_status == "api_execution_ready"
     assert status.readiness is not None
     assert status.readiness["signed_writes_verified"] is True
+    assert status.readiness["signed_write_failure"] is None
+    assert status.support_matrix is not None
+    assert status.support_matrix["signed_futures_writes_verified"] is True
+    assert status.support_matrix["write_failure_category"] is None
+
+
+def test_execution_status_support_matrix_exposes_degraded_write_category(monkeypatch) -> None:
+    client = _configured_bitmart_client(monkeypatch)
+    monkeypatch.setenv("HERMES_BITMART_VERIFY_SIGNED_WRITES", "true")
+    monkeypatch.setattr(client, "get_exchange_balances", lambda: None)
+    monkeypatch.setattr(
+        client,
+        "check_futures_write_capability",
+        lambda **kwargs: multi_venue_module.FuturesWriteCapabilityCheck(
+            exchange="BITMART",
+            venue="bitmart",
+            account_type="swap",
+            status="cloudflare_waf",
+            verified=False,
+        ),
+    )
+
+    status = client.get_execution_status()
+
+    assert status.readiness_status == "read_only_live"
+    assert status.readiness is not None
+    assert status.readiness["signed_write_failure"] == "cloudflare_waf"
+    assert status.support_matrix is not None
+    assert status.support_matrix["write_failure_category"] == "cloudflare_waf"
