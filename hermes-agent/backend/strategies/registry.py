@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StrategyDefinition(BaseModel):
@@ -26,6 +26,7 @@ class ScoredCandidate(BaseModel):
     direction: Literal["long", "short", "watch"]
     confidence: float
     chronos_score: float | None = None
+    sizing_hints: dict[str, Any] = Field(default_factory=dict)
     rationale: str
     strategy_name: str
     strategy_version: str = "1.0.0"

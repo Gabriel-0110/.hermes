@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 _BITMART_DIRECT_FUTURES_BASE_URL = "https://api-cloud-v2.bitmart.com"
 _BITMART_DIRECT_FUTURES_ORDER_PATH = "/contract/private/submit-order"
+_BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH = "/contract/private/submit-plan-order"
+_BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH = "/contract/private/submit-tp-sl-order"
 _BITMART_DIRECT_USER_AGENT = "bitmart-skills/futures/v2026.3.23"
 
 
@@ -652,9 +654,9 @@ class VenueExecutionClient:
         if normalized_side not in {"buy", "sell"}:
             raise IntegrationError(f"Unsupported BitMart order side: {side!r}")
         if normalized_position_side == "long" and normalized_side != "sell" and reduce_only:
-            raise IntegrationError("Closing a long BitMart futures position must use side='sell'.")
+            logger.warning("BitMart reduce-only long close requested with side=%s; exchange will validate the request", side)
         if normalized_position_side == "short" and normalized_side != "buy" and reduce_only:
-            raise IntegrationError("Closing a short BitMart futures position must use side='buy'.")
+            logger.warning("BitMart reduce-only short close requested with side=%s; exchange will validate the request", side)
         if normalized_side == "buy":
             return 2 if reduce_only else 1
         return 3 if reduce_only else 4
@@ -672,15 +674,21 @@ class VenueExecutionClient:
             return 3
         return None
 
-    def _build_bitmart_signed_futures_request(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _build_bitmart_signed_futures_request(
+        self,
+        body: dict[str, Any],
+        *,
+        path: str = _BITMART_DIRECT_FUTURES_ORDER_PATH,
+    ) -> dict[str, Any]:
         body_json = json.dumps(body, separators=(",", ":"))
         timestamp = str(int(time.time() * 1000))
         signature_payload = f"{timestamp}#{self._memo}#{body_json}"
         signature = hmac.new(self._secret.encode(), signature_payload.encode(), hashlib.sha256).hexdigest()
         base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
         return {
-            "url": f"{base_url}{_BITMART_DIRECT_FUTURES_ORDER_PATH}",
+            "url": f"{base_url}{path}",
             "body_json": body_json,
+            "path": path,
             "headers": {
                 "Content-Type": "application/json",
                 "User-Agent": _BITMART_DIRECT_USER_AGENT,
@@ -689,6 +697,130 @@ class VenueExecutionClient:
                 "X-BM-TIMESTAMP": timestamp,
             },
         }
+
+    def _post_bitmart_signed_futures_request(
+        self,
+        *,
+        path: str,
+        body: dict[str, Any],
+        context: str,
+    ) -> dict[str, Any]:
+        signed = self._build_bitmart_signed_futures_request(body, path=path)
+        try:
+            response = requests.post(signed["url"], data=signed["body_json"], headers=signed["headers"], timeout=30)
+        except Exception as exc:
+            raise IntegrationError(f"BITMART {context} request failed before a response was received: {exc}") from exc
+
+        if response.status_code >= 400:
+            body_preview = response.text[:300]
+            raise IntegrationError(
+                f"BITMART {context} HTTP {response.status_code}: {body_preview or 'empty response body'}"
+            )
+
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise IntegrationError(
+                f"BITMART {context} returned non-JSON content: {response.text[:300]}"
+            ) from exc
+
+        if payload.get("code") != 1000:
+            raise IntegrationError(
+                f"BITMART {context} rejected the request: code={payload.get('code')} "
+                f"message={payload.get('message')!r} trace={payload.get('trace')!r}"
+            )
+
+        return payload
+
+    def _attach_bitmart_risk_orders(
+        self,
+        *,
+        symbol: str,
+        market_symbol: str,
+        size: int,
+        entry_side: str,
+        order_type: str,
+        take_profit_price: float | None,
+        stop_loss_price: float | None,
+        client_order_id: str | None,
+        position_side: str | None,
+        entry_order_id: str | None,
+        exchange: Any,
+    ) -> dict[str, Any]:
+        attachments: dict[str, Any] = {}
+        exit_side = "sell" if str(entry_side).lower() == "buy" else "buy"
+        reduce_side = self._bitmart_swap_side_code(side=exit_side, reduce_only=True, position_side=position_side)
+
+        if take_profit_price is not None:
+            tp_body = {
+                "symbol": market_symbol,
+                "side": reduce_side,
+                "size": size,
+                "trigger_price": exchange.price_to_precision(symbol, take_profit_price),
+                "execute_price": exchange.price_to_precision(symbol, take_profit_price),
+                "plan_type": "take_profit",
+            }
+            if entry_order_id:
+                tp_body["order_id"] = entry_order_id
+            if client_order_id:
+                tp_body["client_order_id"] = f"{client_order_id}-tp"
+            try:
+                payload = self._post_bitmart_signed_futures_request(
+                    path=_BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                    body=tp_body,
+                    context="submit-tp-sl-order",
+                )
+                attachments["take_profit"] = {
+                    "status": "submitted",
+                    "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                    "order_id": str((payload.get("data") or {}).get("order_id") or (payload.get("data") or {}).get("orderId") or ""),
+                    "trigger_price": tp_body["trigger_price"],
+                }
+            except Exception as exc:
+                logger.warning("BITMART submit-tp-sl-order failed for %s: %s", symbol, exc)
+                attachments["take_profit"] = {
+                    "status": "failed",
+                    "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                    "error": str(exc),
+                    "trigger_price": tp_body["trigger_price"],
+                }
+
+        if stop_loss_price is not None:
+            sl_body = {
+                "symbol": market_symbol,
+                "type": "market" if order_type == "market" else "limit",
+                "side": reduce_side,
+                "size": size,
+                "trigger_price": exchange.price_to_precision(symbol, stop_loss_price),
+                "execute_price": exchange.price_to_precision(symbol, stop_loss_price),
+                "plan_type": "stop_loss",
+            }
+            if entry_order_id:
+                sl_body["order_id"] = entry_order_id
+            if client_order_id:
+                sl_body["client_order_id"] = f"{client_order_id}-sl"
+            try:
+                payload = self._post_bitmart_signed_futures_request(
+                    path=_BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
+                    body=sl_body,
+                    context="submit-plan-order",
+                )
+                attachments["stop_loss"] = {
+                    "status": "submitted",
+                    "path": _BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
+                    "order_id": str((payload.get("data") or {}).get("order_id") or (payload.get("data") or {}).get("orderId") or ""),
+                    "trigger_price": sl_body["trigger_price"],
+                }
+            except Exception as exc:
+                logger.warning("BITMART submit-plan-order failed for %s: %s", symbol, exc)
+                attachments["stop_loss"] = {
+                    "status": "failed",
+                    "path": _BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
+                    "error": str(exc),
+                    "trigger_price": sl_body["trigger_price"],
+                }
+
+        return attachments
 
     def _classify_bitmart_write_response(
         self,
@@ -955,34 +1087,28 @@ class VenueExecutionClient:
                 request["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
                 request["preset_stop_loss_price_type"] = 1
 
-        signed = self._build_bitmart_signed_futures_request(request)
         logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
-        try:
-            response = requests.post(signed["url"], data=signed["body_json"], headers=signed["headers"], timeout=30)
-        except Exception as exc:
-            raise IntegrationError(f"BITMART submit-order request failed before a response was received: {exc}") from exc
-
-        if response.status_code >= 400:
-            body_preview = response.text[:300]
-            raise IntegrationError(
-                f"BITMART submit-order HTTP {response.status_code}: {body_preview or 'empty response body'}"
-            )
-
-        try:
-            payload = response.json()
-        except Exception as exc:
-            raise IntegrationError(
-                f"BITMART submit-order returned non-JSON content: {response.text[:300]}"
-            ) from exc
-
-        if payload.get("code") != 1000:
-            raise IntegrationError(
-                f"BITMART submit-order rejected the request: code={payload.get('code')} "
-                f"message={payload.get('message')!r} trace={payload.get('trace')!r}"
-            )
+        payload = self._post_bitmart_signed_futures_request(
+            path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+            body=request,
+            context="submit-order",
+        )
 
         data = payload.get("data") or {}
         submitted_at = datetime.now(timezone.utc).isoformat()
+        bracket_orders = self._attach_bitmart_risk_orders(
+            symbol=symbol,
+            market_symbol=market_symbol,
+            size=size,
+            entry_side=side,
+            order_type=order_type_normalized,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            client_order_id=client_order_id,
+            position_side=position_side,
+            entry_order_id=str(data.get("order_id") or data.get("orderId") or "") or None,
+            exchange=exchange,
+        )
         return ExecutionOrder(
             order_id=str(data.get("order_id") or data.get("orderId") or ""),
             exchange=self.provider.name,
@@ -1005,6 +1131,7 @@ class VenueExecutionClient:
                 "leverage": request.get("leverage"),
                 "preset_take_profit_price": request.get("preset_take_profit_price"),
                 "preset_stop_loss_price": request.get("preset_stop_loss_price"),
+                "bitmart_bracket_orders": bracket_orders,
                 "client_order_id": client_order_id,
             },
             created_at=submitted_at,

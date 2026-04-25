@@ -8,10 +8,13 @@ from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from backend.models import KillSwitchResult
+from backend.db import HermesTimeSeriesRepository, ensure_time_series_schema, session_scope
+from backend.db.session import get_engine
 from backend.redis_client import get_redis_client
-from backend.tools._helpers import envelope, provider_ok, run_tool, validate
+from backend.tools._helpers import envelope, provider_error, provider_ok, run_tool, validate
 
 _KILL_SWITCH_KEY = "hermes:risk:kill_switch"
+_GLOBAL_RISK_SCOPE = "__GLOBAL__"
 
 
 class SetKillSwitchInput(BaseModel):
@@ -85,6 +88,39 @@ def set_risk_limits(payload: dict) -> dict:
             existing["carry_trade_max_equity_pct"] = args.carry_trade_max_equity_pct
 
         redis.set(_LIMITS_KEY, json.dumps(existing))
-        return envelope("set_risk_limits", [provider_ok("REDIS")], {"saved": existing})
+
+        providers = [provider_ok("REDIS")]
+        db_persisted = False
+        try:
+            ensure_time_series_schema(get_engine())
+            with session_scope() as session:
+                repo = HermesTimeSeriesRepository(session)
+                scope = symbol or _GLOBAL_RISK_SCOPE
+                db_kwargs = {"scope": scope, "metadata": {"updated_via": "set_risk_limits"}}
+                if symbol is None and args.max_position_usd is not None:
+                    db_kwargs["max_position_usd"] = args.max_position_usd
+                elif symbol is None and args.max_notional_usd is not None:
+                    db_kwargs["max_position_usd"] = args.max_notional_usd
+                if args.max_notional_usd is not None:
+                    db_kwargs["max_notional_usd"] = args.max_notional_usd
+                if args.max_leverage is not None:
+                    db_kwargs["max_leverage"] = args.max_leverage
+                if symbol is None and args.max_daily_loss_usd is not None:
+                    db_kwargs["max_daily_loss_usd"] = args.max_daily_loss_usd
+                if symbol is None and args.drawdown_limit_pct is not None:
+                    db_kwargs["drawdown_limit_pct"] = args.drawdown_limit_pct
+                if symbol is None and args.carry_trade_max_equity_pct is not None:
+                    db_kwargs["carry_trade_max_equity_pct"] = args.carry_trade_max_equity_pct
+                repo.upsert_risk_limit(**db_kwargs)
+            providers.append(provider_ok("TIMESCALEDB", "Risk limits persisted to the shared database."))
+            db_persisted = True
+        except Exception as exc:
+            providers.append(provider_error("TIMESCALEDB", str(exc)))
+
+        return envelope(
+            "set_risk_limits",
+            providers,
+            {"saved": existing, "database_persisted": db_persisted},
+        )
 
     return run_tool("set_risk_limits", _run)

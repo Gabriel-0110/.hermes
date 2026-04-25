@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from backend.event_bus.models import TradingEvent
 from backend.event_bus.publisher import publish_trading_event
+from backend.integrations.execution.mode import schedule_paper_shadow_for_approved_request
 from backend.observability.service import get_observability_service
 
 from .lifecycle_notifications import (
@@ -66,6 +67,18 @@ def dispatch_trade_proposal(proposal: TradeProposal) -> ExecutionDispatchResult:
         legs=_request_legs_from_proposal(proposal, scale=scale),
         metadata=proposal.metadata,
     )
+
+    if decision.approved and decision.execution_mode == "live":
+        approval_shadow_fill_at = schedule_paper_shadow_for_approved_request(
+            request,
+            correlation_id=correlation_id,
+            workflow_run_id=workflow_id,
+        )
+        if approval_shadow_fill_at:
+            request.metadata = {
+                **request.metadata,
+                "paper_shadow_approval_fill_at": approval_shadow_fill_at,
+            }
 
     if decision.status == "rejected":
         get_observability_service().record_execution_event(

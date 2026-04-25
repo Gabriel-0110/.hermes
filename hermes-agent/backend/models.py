@@ -112,6 +112,12 @@ class EventRiskSummary(BaseModel):
     summary: str
     catalysts: list[str] = Field(default_factory=list)
     watch_items: list[str] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    blackout_active: bool = False
+    blackout_reason: str | None = None
+    blackout_window_minutes: int | None = None
+    minutes_to_event: float | None = None
+    event_time: str | None = None
 
 
 class MacroSeries(BaseModel):

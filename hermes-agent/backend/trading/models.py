@@ -148,6 +148,7 @@ class RiskRejectionReason(StrEnum):
     DRAWDOWN_LIMIT_BREACHED = "drawdown_limit_breached"
     POSITION_LIMIT_EXCEEDED = "position_limit_exceeded"
     LEVERAGE_LIMIT_EXCEEDED = "leverage_limit_exceeded"
+    EVENT_RISK_BLACKOUT = "event_risk_blackout"
 
 
 class PolicyDecision(BaseModel):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, Index, Integer, JSON, String, Text, func
@@ -383,6 +383,33 @@ class PaperShadowFillRow(Base):
     )
 
 
+class RiskLimitRow(Base):
+    __tablename__ = "risk_limits"
+    __table_args__ = (
+        Index("ix_risk_limits_updated_at", "updated_at"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    max_position_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_notional_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_leverage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_daily_loss_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    drawdown_limit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    carry_trade_max_equity_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class SystemErrorRow(Base):
     __tablename__ = "system_errors"
     __table_args__ = (
@@ -647,4 +674,80 @@ class StrategyEvaluationRow(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class CopyTraderScoreRow(Base):
+    """Daily leaderboard scoring snapshots for copy-trader curation."""
+
+    __tablename__ = "copy_trader_scores"
+    __table_args__ = (
+        Index("ix_copy_trader_scores_trader_time", "trader_id", "score_time"),
+        Index("ix_copy_trader_scores_rank_time", "rank", "score_time"),
+        Index("ix_copy_trader_scores_active_time", "is_active_master", "score_time"),
+    )
+
+    score_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("copy_score"))
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="bitmart_aihub")
+    snapshot_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    trader_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    trader_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    score_percentile: Mapped[float] = mapped_column(Float, nullable=False)
+    sharpe_30d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_drawdown_pct_30d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fee_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_active_master: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
+
+
+class CopyTraderSwitchProposalRow(Base):
+    """Operator approvals for recommended copy-trader master switches."""
+
+    __tablename__ = "copy_trader_switch_proposals"
+    __table_args__ = (
+        Index("ix_copy_trader_switch_proposals_active_time", "active_trader_id", "created_at"),
+        Index("ix_copy_trader_switch_proposals_status_time", "status", "created_at"),
+        Index("ix_copy_trader_switch_proposals_candidate_time", "candidate_trader_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("copy_switch"))
+    active_trader_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    active_trader_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    candidate_trader_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    candidate_trader_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    active_percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
+    candidate_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    candidate_percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
+    threshold_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
+    delivery_channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notification_message_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    payload_json: Mapped[dict] = mapped_column("payload", JSON, nullable=False, default=dict)
+    operator: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(UTC),
     )

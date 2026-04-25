@@ -118,6 +118,12 @@ def _live_reference_price(exchange_order: dict[str, Any] | None, fallback_price:
     return fallback_price
 
 
+def _approval_reference_price(symbol: str, fallback_price: float | None = None) -> float | None:
+    if fallback_price is not None:
+        return fallback_price
+    return _fetch_shadow_mid_price(symbol)
+
+
 def _notional_for_fill(price: float | None, amount: float | None, fallback: float | None) -> float | None:
     if price is not None and amount is not None:
         return abs(price * amount)
@@ -236,7 +242,7 @@ def schedule_paper_shadow_for_request(request, result) -> list[str]:
                         "exchange_order": exchange_order,
                         "execution_leg": leg_payload,
                     },
-                    "metadata": {"paired_execution": True},
+                    "metadata": {"paired_execution": True, "shadow_stage": "execution"},
                 }
             )
             scheduled.append(fill_at.isoformat())
@@ -264,7 +270,67 @@ def schedule_paper_shadow_for_request(request, result) -> list[str]:
                 request.size_usd,
             ),
             "payload": {"exchange_order": exchange_order},
-            "metadata": {"paired_execution": False},
+            "metadata": {"paired_execution": False, "shadow_stage": "execution"},
+        }
+    )
+    return [fill_at.isoformat()]
+
+
+def schedule_paper_shadow_for_approved_request(
+    request,
+    *,
+    correlation_id: str | None = None,
+    workflow_run_id: str | None = None,
+) -> list[str]:
+    if current_trading_mode() != "live":
+        return []
+
+    scheduled: list[str] = []
+
+    if request.legs:
+        for leg in request.legs:
+            reference_price = _approval_reference_price(str(leg.symbol or ""), _float_or_none(leg.price))
+            fill_at = schedule_paper_shadow_fill(
+                {
+                    "proposal_id": request.proposal_id,
+                    "request_id": request.request_id,
+                    "leg_id": leg.leg_id,
+                    "correlation_id": correlation_id,
+                    "workflow_run_id": workflow_run_id,
+                    "strategy_id": request.strategy_id,
+                    "strategy_template_id": request.strategy_template_id,
+                    "source_agent": request.source_agent,
+                    "symbol": leg.symbol,
+                    "side": leg.side,
+                    "execution_style": request.execution_style,
+                    "live_reference_price": reference_price,
+                    "amount": _float_or_none(leg.amount),
+                    "live_notional_usd": _notional_for_fill(reference_price, _float_or_none(leg.amount), leg.size_usd),
+                    "payload": {"execution_leg": leg.model_dump(mode="json")},
+                    "metadata": {"paired_execution": True, "shadow_stage": "approval"},
+                }
+            )
+            scheduled.append(fill_at.isoformat())
+        return scheduled
+
+    reference_price = _approval_reference_price(str(request.symbol or ""), _float_or_none(request.price))
+    fill_at = schedule_paper_shadow_fill(
+        {
+            "proposal_id": request.proposal_id,
+            "request_id": request.request_id,
+            "correlation_id": correlation_id,
+            "workflow_run_id": workflow_run_id,
+            "strategy_id": request.strategy_id,
+            "strategy_template_id": request.strategy_template_id,
+            "source_agent": request.source_agent,
+            "symbol": request.symbol,
+            "side": request.side,
+            "execution_style": request.execution_style,
+            "live_reference_price": reference_price,
+            "amount": _float_or_none(request.amount),
+            "live_notional_usd": _notional_for_fill(reference_price, _float_or_none(request.amount), request.size_usd),
+            "payload": {"execution_request": request.model_dump(mode="json")},
+            "metadata": {"paired_execution": False, "shadow_stage": "approval"},
         }
     )
     return [fill_at.isoformat()]

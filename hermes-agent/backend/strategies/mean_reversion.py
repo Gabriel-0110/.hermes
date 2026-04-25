@@ -159,6 +159,12 @@ def score_mean_reversion(
         direction=direction,
         confidence=confidence,
         chronos_score=chronos.score,
+        sizing_hints={
+            "atr": atr,
+            "price": close,
+            "timeframe": timeframe,
+            "regime": regime,
+        },
         rationale="; ".join(reasons),
         strategy_name=_STRATEGY.name,
         strategy_version=_STRATEGY.version,

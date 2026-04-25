@@ -26,6 +26,25 @@ _LIMITS_KEY = "hermes:risk:limits"
 _EQUITY_PEAK_KEY = "hermes:risk:equity_peak"
 
 
+def _parse_drawdown_peak(raw: object) -> float | None:
+    if raw in (None, "", b""):
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        if isinstance(raw, str):
+            stripped = raw.strip()
+            if stripped.startswith("{"):
+                payload = json.loads(stripped)
+                return float(payload.get("equity") or 0.0)
+            return float(stripped)
+        if isinstance(raw, dict):
+            return float(raw.get("equity") or 0.0)
+        return float(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _check_and_enforce_drawdown() -> bool:
     """Return True (and activate kill switch) if drawdown limit has been breached."""
     try:
@@ -45,7 +64,7 @@ def _check_and_enforce_drawdown() -> bool:
         peak_raw = redis.get(_EQUITY_PEAK_KEY)
         if not peak_raw:
             return False
-        peak_equity = float(json.loads(peak_raw).get("equity", 0) or 0)
+        peak_equity = _parse_drawdown_peak(peak_raw) or 0.0
         if peak_equity <= 0:
             return False
 
@@ -234,6 +253,18 @@ def _default_size_usd_for_strategy(strategy_name: str) -> float:
     return 50.0
 
 
+def _size_usd_for_candidate(strategy_name: str, candidate) -> float:
+    try:
+        from backend.strategies.runners import BOT_RUNNER_REGISTRY
+
+        runner_cls = BOT_RUNNER_REGISTRY.get(strategy_name)
+        if runner_cls is not None:
+            return float(runner_cls().size_for_candidate(candidate))
+    except Exception as exc:
+        logger.debug("signal_ready_worker: dynamic size lookup failed for %s: %s", strategy_name, exc)
+    return _default_size_usd_for_strategy(strategy_name)
+
+
 def _score_tradingview_candidate(
     *,
     strategy_name: str,
@@ -386,7 +417,7 @@ def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
 
         proposal = proposal_from_candidate(
             candidate,
-            size_usd=_default_size_usd_for_strategy(strategy_name),
+            size_usd=_size_usd_for_candidate(strategy_name, candidate),
             source_agent="tradingview_signal_worker",
             strategy_id=f"tradingview/{strategy_name}",
             timeframe=timeframe,

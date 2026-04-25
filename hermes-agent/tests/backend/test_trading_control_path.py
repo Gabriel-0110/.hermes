@@ -190,6 +190,58 @@ def test_policy_decision_blocks_when_requested_leverage_exceeds_cap(monkeypatch)
     assert RiskRejectionReason.LEVERAGE_LIMIT_EXCEEDED in decision.rejection_reasons
 
 
+def test_policy_decision_rejects_high_impact_event_blackout(monkeypatch) -> None:
+    monkeypatch.setattr("backend.trading.policy_engine.current_trading_mode", lambda: "paper")
+    monkeypatch.setattr("backend.trading.policy_engine.live_trading_blockers", lambda: [])
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_kill_switch_state",
+        lambda: {"active": False, "reason": None},
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_portfolio_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {"updated_at": "2026-04-25T00:00:00+00:00", "positions": []},
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {"symbol_limits": {}},
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_event_risk_summary",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {
+                "severity": "high",
+                "matched_keywords": ["FOMC"],
+                "blackout_active": True,
+                "blackout_reason": "FOMC blackout window active.",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_approval",
+        lambda payload: {
+            "data": {
+                "approved": True,
+                "max_size_usd": payload["proposed_size_usd"],
+                "confidence": 0.9,
+                "reasons": [],
+                "stop_guidance": "Use the defined invalidation.",
+            }
+        },
+    )
+
+    decision = evaluate_trade_proposal(_proposal_payload())
+
+    assert decision.status == "rejected"
+    assert RiskRejectionReason.EVENT_RISK_BLACKOUT in decision.rejection_reasons
+
+
 def test_dispatch_records_manual_review_when_approval_required(monkeypatch) -> None:
     published: list[TradingEvent] = []
     decisions: list[tuple[str, str]] = []
@@ -298,6 +350,47 @@ def test_dispatch_preserves_paired_execution_legs(monkeypatch) -> None:
     assert request.legs[0].account_type == "spot"
     assert request.legs[1].account_type == "swap"
     assert request.legs[1].position_side == "short"
+
+
+def test_dispatch_schedules_approval_shadow_when_live(monkeypatch) -> None:
+    published: list[TradingEvent] = []
+    approval_shadow_requests: list[str] = []
+
+    monkeypatch.setattr(
+        "backend.trading.execution_service.publish_trading_event",
+        lambda event: published.append(event),
+    )
+    monkeypatch.setattr(
+        "backend.trading.execution_service.schedule_paper_shadow_for_approved_request",
+        lambda request, correlation_id=None, workflow_run_id=None: approval_shadow_requests.append(request.request_id) or ["2026-04-25T12:03:00+00:00"],
+    )
+    monkeypatch.setattr(
+        "backend.trading.execution_service.get_observability_service",
+        lambda: SimpleNamespace(
+            record_agent_decision=lambda **kwargs: None,
+            record_execution_event=lambda **kwargs: None,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.trading.execution_service.evaluate_trade_proposal",
+        lambda proposal: PolicyDecision(
+            proposal_id=proposal.proposal_id,
+            status="approved",
+            execution_mode="live",
+            approved=True,
+            approved_size_usd=proposal.requested_size_usd,
+            requires_operator_approval=False,
+            policy_trace=["approval=not_required"],
+            rejection_reasons=[],
+        ),
+    )
+
+    result = dispatch_trade_proposal(_proposal_payload())
+
+    assert result.status == "queued"
+    assert approval_shadow_requests == [result.dispatch_payload.request_id]
+    assert result.dispatch_payload.metadata["paper_shadow_approval_fill_at"] == ["2026-04-25T12:03:00+00:00"]
+    assert len(published) == 1
 
 
 def test_worker_routes_approval_required_requests_into_current_queue(monkeypatch) -> None:

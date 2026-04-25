@@ -488,7 +488,7 @@ def test_bitmart_swap_orders_include_inline_tp_sl_and_leverage(monkeypatch):
         def price_to_precision(self, symbol, price):
             return f"{price:.1f}"
 
-    captured = {}
+    captured: list[tuple[str, str]] = []
 
     class FakeResponse:
         status_code = 200
@@ -501,8 +501,7 @@ def test_bitmart_swap_orders_include_inline_tp_sl_and_leverage(monkeypatch):
     monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
 
     def fake_post(url, data=None, headers=None, timeout=None):
-        captured["url"] = url
-        captured["body"] = data
+        captured.append((url, data))
         return FakeResponse()
 
     monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
@@ -519,15 +518,34 @@ def test_bitmart_swap_orders_include_inline_tp_sl_and_leverage(monkeypatch):
         margin_mode="isolated",
     )
 
-    body = json.loads(captured["body"])
-    assert captured["url"].endswith("/contract/private/submit-order")
+    entry_url, entry_body_raw = captured[0]
+    tp_url, tp_body_raw = captured[1]
+    sl_url, sl_body_raw = captured[2]
+
+    body = json.loads(entry_body_raw)
+    tp_body = json.loads(tp_body_raw)
+    sl_body = json.loads(sl_body_raw)
+
+    assert entry_url.endswith("/contract/private/submit-order")
     assert body["open_type"] == "isolated"
     assert body["leverage"] == "5"
     assert body["preset_take_profit_price"] == "68000.0"
     assert body["preset_take_profit_price_type"] == 1
     assert body["preset_stop_loss_price"] == "64000.0"
     assert body["preset_stop_loss_price_type"] == 1
+
+    assert tp_url.endswith("/contract/private/submit-tp-sl-order")
+    assert tp_body["plan_type"] == "take_profit"
+    assert "client_order_id" not in tp_body
+    assert tp_body["trigger_price"] == "68000.0"
+
+    assert sl_url.endswith("/contract/private/submit-plan-order")
+    assert sl_body["plan_type"] == "stop_loss"
+    assert "client_order_id" not in sl_body
+    assert sl_body["trigger_price"] == "64000.0"
     assert order.metadata["leverage"] == "5"
+    assert order.metadata["bitmart_bracket_orders"]["take_profit"]["status"] == "submitted"
+    assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["status"] == "submitted"
 
 
 def test_normalize_ccxt_order_maps_common_bitmart_fields() -> None:

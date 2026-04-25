@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from backend.models import RiskState
 from backend.integrations.execution.mode import current_trading_mode, live_trading_blockers
+from backend.tools.get_event_risk_summary import get_event_risk_summary
 from backend.tools.get_portfolio_state import get_portfolio_state
 from backend.tools.get_risk_approval import get_risk_approval
 from backend.tools.get_risk_state import get_risk_state
@@ -176,6 +178,68 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _event_blackout_state(proposal: TradeProposal) -> dict[str, Any]:
+    event_time = (
+        proposal.metadata.get("event_time_iso")
+        or proposal.metadata.get("high_impact_event_at")
+        or proposal.metadata.get("event_time")
+    )
+    response = get_event_risk_summary(
+        {
+            "query": f"{proposal.symbol} crypto macro CPI FOMC Fed PCE NFP",
+            "event_time_iso": event_time,
+            "window_minutes": 60,
+        }
+    )
+    data = _tool_data(response, {}) if isinstance(response, dict) else {}
+    if not isinstance(data, dict):
+        return {"active": False, "severity": "low", "reason": None, "matched_keywords": []}
+
+    matched_keywords = [str(item) for item in data.get("matched_keywords") or [] if str(item).strip()]
+    severity = str(data.get("severity") or "low").lower()
+    blackout_active = bool(data.get("blackout_active"))
+    minutes_to_event = _float_or_none(data.get("minutes_to_event"))
+    parsed_event_time = _parse_iso_datetime(data.get("event_time") or event_time)
+
+    if not blackout_active and parsed_event_time is not None and severity == "high":
+        blackout_active = abs((parsed_event_time - datetime.now(timezone.utc)).total_seconds()) <= 3600
+        if blackout_active and minutes_to_event is None:
+            minutes_to_event = round((parsed_event_time - datetime.now(timezone.utc)).total_seconds() / 60.0, 2)
+
+    # Fallback: if the summary flags high-impact keywords but lacks precise timing,
+    # be conservative and block new entries until the event context is clearer.
+    if not blackout_active and severity == "high" and matched_keywords:
+        blackout_active = True
+
+    if blackout_active:
+        if minutes_to_event is not None:
+            reason = f"High-impact event blackout active ({minutes_to_event:+.0f}m to event)."
+        elif matched_keywords:
+            reason = "High-impact event blackout active based on matched catalysts: " + ", ".join(matched_keywords)
+        else:
+            reason = str(data.get("blackout_reason") or "High-impact event blackout active.")
+    else:
+        reason = None
+
+    return {
+        "active": blackout_active,
+        "severity": severity,
+        "reason": reason,
+        "matched_keywords": matched_keywords,
+        "minutes_to_event": minutes_to_event,
+    }
+
+
 def _portfolio_warnings() -> list[str]:
     try:
         snapshot = get_portfolio_state({})
@@ -262,6 +326,16 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
         rejection_reasons=rejection_reasons,
         trace=trace,
     )
+
+    event_blackout = _event_blackout_state(proposal)
+    trace.append(
+        "event_blackout="
+        f"active={event_blackout['active']},severity={event_blackout['severity']},"
+        f"keywords={','.join(event_blackout['matched_keywords']) or 'none'}"
+    )
+    if event_blackout["active"]:
+        blockers.append(str(event_blackout["reason"] or "High-impact event blackout active."))
+        rejection_reasons.append(RiskRejectionReason.EVENT_RISK_BLACKOUT)
 
     requires_operator_approval = (
         proposal.require_operator_approval

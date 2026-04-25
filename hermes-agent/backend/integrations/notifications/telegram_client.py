@@ -57,16 +57,28 @@ class TelegramNotificationClient:
         stop=stop_after_attempt(3),
         reraise=True,
     )
-    def send_message(self, text: str) -> dict[str, Any]:
+    def send_message(
+        self,
+        text: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
+        chat_id: str | None = None,
+    ) -> dict[str, Any]:
         self.require_credentials()
+        payload: dict[str, Any] = {
+            "chat_id": chat_id or self._chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         try:
             response = self._client.post(
                 f"/bot{self._bot_token}/sendMessage",
-                json={
-                    "chat_id": self._chat_id,
-                    "text": text,
-                    "disable_web_page_preview": True,
-                },
+                json=payload,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:

@@ -10,7 +10,7 @@ Covers:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -218,6 +218,7 @@ class BitMartPublicClient:
         BitMart does not expose a force-orders feed. We use:
         - /contract/public/open-interest  → current OI value
         - /contract/public/details        → funding rate, last price, change_24h as proxy
+        - /contract/public/trades         → last five minutes of directional tape as a liquidation proxy
         """
         sym = symbol.upper()
 
@@ -235,7 +236,6 @@ class BitMartPublicClient:
 
         funding_rate = _safe_float(contract.get("funding_rate"))
         change_24h = _safe_float(contract.get("change_24h"))
-        expected_funding = _safe_float(contract.get("expected_funding_rate"))
 
         # Derive a rough dominant side from funding rate sign:
         # Positive funding = longs pay shorts → crowded long, risk = long liquidation
@@ -251,9 +251,51 @@ class BitMartPublicClient:
         else:
             dominant = "balanced"
 
-        # No actual liquidation events available; create a single synthetic entry summarising OI
+        recent_trades = self.get_recent_trades(sym, limit=max(limit * 5, 100))
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+        five_minute_trades = [
+            trade
+            for trade in recent_trades.trades
+            if _iso_to_dt(trade.timestamp) is not None and _iso_to_dt(trade.timestamp) >= cutoff
+        ]
+        buy_pressure_usd = round(
+            sum(trade.price * trade.size for trade in five_minute_trades if trade.side == "buy"),
+            2,
+        )
+        sell_pressure_usd = round(
+            sum(trade.price * trade.size for trade in five_minute_trades if trade.side == "sell"),
+            2,
+        )
+
         entries: list[LiquidationEntry] = []
-        if oi_value:
+        if dominant == "longs":
+            entries.extend(
+                LiquidationEntry(
+                    symbol=sym,
+                    side="LONG_LIQUIDATION_PROXY",
+                    price=trade.price,
+                    quantity=trade.size,
+                    usd_value=round(trade.price * trade.size, 2),
+                    timestamp=trade.timestamp,
+                )
+                for trade in five_minute_trades
+                if trade.side == "sell"
+            )
+        elif dominant == "shorts":
+            entries.extend(
+                LiquidationEntry(
+                    symbol=sym,
+                    side="SHORT_LIQUIDATION_PROXY",
+                    price=trade.price,
+                    quantity=trade.size,
+                    usd_value=round(trade.price * trade.size, 2),
+                    timestamp=trade.timestamp,
+                )
+                for trade in five_minute_trades
+                if trade.side == "buy"
+            )
+
+        if not entries and oi_value:
             entries.append(LiquidationEntry(
                 symbol=sym,
                 side="OI_PROXY",
@@ -263,11 +305,18 @@ class BitMartPublicClient:
                 timestamp=datetime.now(timezone.utc).isoformat(),
             ))
 
+        estimated_longs_liquidated_usd = None
+        estimated_shorts_liquidated_usd = None
+        if dominant == "longs" and (change_24h is None or change_24h <= 0):
+            estimated_longs_liquidated_usd = sell_pressure_usd or None
+        if dominant == "shorts" and (change_24h is None or change_24h >= 0):
+            estimated_shorts_liquidated_usd = buy_pressure_usd or None
+
         return LiquidationZonesSnapshot(
             symbol=sym,
-            recent_liquidations=entries,
-            total_longs_liquidated_usd=None,   # not available from public API
-            total_shorts_liquidated_usd=None,
+            recent_liquidations=entries[:limit],
+            total_longs_liquidated_usd=estimated_longs_liquidated_usd,
+            total_shorts_liquidated_usd=estimated_shorts_liquidated_usd,
             dominant_side=dominant,
             open_interest_usd=oi_value,
             long_short_ratio=None,             # not available from public API
@@ -384,4 +433,14 @@ def _ms_to_iso(ms: Any) -> str | None:
     try:
         return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).isoformat()
     except (TypeError, ValueError, OSError):
+        return None
+
+
+def _iso_to_dt(value: str | None) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
         return None

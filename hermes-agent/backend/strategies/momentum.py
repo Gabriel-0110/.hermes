@@ -139,6 +139,12 @@ def score_momentum(
         direction=direction,
         confidence=confidence,
         chronos_score=chronos.score,
+        sizing_hints={
+            "atr": _f(indicator_data.get("atr") or indicator_data.get("atr_14")),
+            "price": close,
+            "timeframe": timeframe,
+            "regime": regime,
+        },
         rationale="; ".join(reasons),
         strategy_name=_STRATEGY.name,
         strategy_version=_STRATEGY.version,

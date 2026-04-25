@@ -6,6 +6,7 @@ Usage:
     hermes                     # Interactive chat (default)
     hermes chat                # Interactive chat
     hermes backtest            # Historical scorer replay and metrics
+    hermes risk set-limit      # Persist symbol risk limits
     hermes gateway             # Run gateway in foreground
     hermes gateway start       # Start gateway as service
     hermes gateway stop        # Stop gateway service
@@ -2862,6 +2863,32 @@ def cmd_cron(args):
     cron_command(args)
 
 
+def cmd_risk(args):
+    """Risk limit management."""
+    if getattr(args, "risk_command", None) != "set-limit":
+        print("Error: unsupported risk command")
+        sys.exit(1)
+
+    from backend.tools.set_kill_switch import set_risk_limits
+
+    payload = {
+        "symbol": args.symbol,
+        "max_notional_usd": args.max_notional_usd,
+        "max_leverage": args.max_leverage,
+    }
+    result = set_risk_limits(payload)
+    if not result.get("meta", {}).get("ok", True):
+        detail = result.get("data", {}).get("detail") if isinstance(result.get("data"), dict) else None
+        print(f"Error: {detail or 'failed to persist risk limits'}")
+        sys.exit(1)
+
+    print(
+        "Saved risk limits for "
+        f"{str(args.symbol).upper()}: max_notional_usd={args.max_notional_usd:.2f} "
+        f"max_leverage={args.max_leverage:g}x"
+    )
+
+
 def cmd_webhook(args):
     """Webhook subscription management."""
     from hermes_cli.webhook import webhook_command
@@ -4998,6 +5025,26 @@ For more help on a command:
         help="Run deep checks (may take longer)"
     )
     status_parser.set_defaults(func=cmd_status)
+
+    # =========================================================================
+    # risk command
+    # =========================================================================
+    risk_parser = subparsers.add_parser(
+        "risk",
+        help="Manage persisted trading risk limits",
+        description="Persist and update shared trading risk limits",
+    )
+    risk_subparsers = risk_parser.add_subparsers(dest="risk_command")
+
+    risk_set_limit = risk_subparsers.add_parser(
+        "set-limit",
+        help="Persist per-symbol notional and leverage caps",
+    )
+    risk_set_limit.add_argument("symbol", help="Symbol to cap, e.g. BTCUSDT")
+    risk_set_limit.add_argument("max_notional_usd", type=float, help="Maximum allowed notional in USD")
+    risk_set_limit.add_argument("max_leverage", type=float, help="Maximum allowed leverage for the symbol")
+
+    risk_parser.set_defaults(func=cmd_risk)
     
     # =========================================================================
     # cron command

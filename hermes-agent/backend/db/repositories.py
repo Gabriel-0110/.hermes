@@ -21,6 +21,7 @@ from .models import (
     ReplayCaseRow,
     ReplayResultRow,
     ReplayRunRow,
+    RiskLimitRow,
     RiskEventRow,
     SystemErrorRow,
     ToolCallRow,
@@ -29,6 +30,9 @@ from .models import (
     WorkflowRunRow,
     WorkflowStepRow,
 )
+
+
+_UNSET = object()
 
 
 def _utcnow() -> datetime:
@@ -850,6 +854,53 @@ class HermesTimeSeriesRepository:
         if since:
             statement = statement.where(PaperShadowFillRow.fill_time >= since)
         statement = statement.order_by(desc(PaperShadowFillRow.fill_time)).limit(max(1, min(limit, 1000)))
+        return list(self.session.scalars(statement))
+
+    def get_risk_limit(self, scope: str) -> RiskLimitRow | None:
+        statement = (
+            select(RiskLimitRow)
+            .where(RiskLimitRow.scope == scope)
+            .limit(1)
+        )
+        return self.session.scalars(statement).first()
+
+    def upsert_risk_limit(
+        self,
+        *,
+        scope: str,
+        max_position_usd: float | None | object = _UNSET,
+        max_notional_usd: float | None | object = _UNSET,
+        max_leverage: float | None | object = _UNSET,
+        max_daily_loss_usd: float | None | object = _UNSET,
+        drawdown_limit_pct: float | None | object = _UNSET,
+        carry_trade_max_equity_pct: float | None | object = _UNSET,
+        metadata: dict[str, Any] | None = None,
+    ) -> RiskLimitRow:
+        row = self.get_risk_limit(scope)
+        if row is None:
+            row = RiskLimitRow(scope=scope, metadata_json=metadata or {})
+            self.session.add(row)
+
+        if max_position_usd is not _UNSET:
+            row.max_position_usd = max_position_usd  # type: ignore[assignment]
+        if max_notional_usd is not _UNSET:
+            row.max_notional_usd = max_notional_usd  # type: ignore[assignment]
+        if max_leverage is not _UNSET:
+            row.max_leverage = max_leverage  # type: ignore[assignment]
+        if max_daily_loss_usd is not _UNSET:
+            row.max_daily_loss_usd = max_daily_loss_usd  # type: ignore[assignment]
+        if drawdown_limit_pct is not _UNSET:
+            row.drawdown_limit_pct = drawdown_limit_pct  # type: ignore[assignment]
+        if carry_trade_max_equity_pct is not _UNSET:
+            row.carry_trade_max_equity_pct = carry_trade_max_equity_pct  # type: ignore[assignment]
+        if metadata is not None:
+            row.metadata_json = {**(row.metadata_json or {}), **metadata}
+
+        self.session.flush()
+        return row
+
+    def list_risk_limits(self) -> list[RiskLimitRow]:
+        statement = select(RiskLimitRow).order_by(RiskLimitRow.scope.asc())
         return list(self.session.scalars(statement))
 
     def insert_system_error(

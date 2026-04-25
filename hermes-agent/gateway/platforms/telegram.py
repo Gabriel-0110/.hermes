@@ -1486,6 +1486,66 @@ class TelegramAdapter(BasePlatformAdapter):
                     logger.error("Failed to resolve gateway approval from Telegram button: %s", exc)
             return
 
+        # --- Copy-trader switch proposal callbacks (cts:action:proposal_id) ---
+        if data.startswith("cts:"):
+            parts = data.split(":", 2)
+            if len(parts) == 3:
+                action = parts[1]
+                proposal_id = parts[2]
+
+                caller_id = str(getattr(query.from_user, "id", ""))
+                allowed_csv = os.getenv("TELEGRAM_ALLOWED_USERS", "").strip()
+                if allowed_csv:
+                    allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+                    if "*" not in allowed_ids and caller_id not in allowed_ids:
+                        await query.answer(text="⛔ You are not authorized to review curator proposals.")
+                        return
+
+                try:
+                    from backend.copy_trader_proposals import (
+                        approve_copy_trader_switch_proposal,
+                        reject_copy_trader_switch_proposal,
+                    )
+
+                    user_display = getattr(query.from_user, "first_name", "Operator")
+                    if action == "a":
+                        result = approve_copy_trader_switch_proposal(
+                            proposal_id,
+                            operator=f"telegram:{user_display}",
+                        )
+                        label = "✅ Switch recommendation approved"
+                    elif action == "r":
+                        result = reject_copy_trader_switch_proposal(
+                            proposal_id,
+                            operator=f"telegram:{user_display}",
+                        )
+                        label = "❌ Switch recommendation rejected"
+                    else:
+                        await query.answer(text="Unknown curator action.")
+                        return
+
+                    if not result:
+                        await query.answer(text="This curator proposal has already been resolved.")
+                        return
+
+                    await query.answer(text=label)
+                    try:
+                        await query.edit_message_text(
+                            text=(
+                                f"{label} by {user_display}\n\n"
+                                f"Active master: {result.get('active_trader_name') or 'unknown'}\n"
+                                f"Suggested replacement: {result.get('candidate_trader_name') or 'n/a'}\n\n"
+                                "Manual BitMart copy-trader switching is still required."
+                            ),
+                            reply_markup=None,
+                        )
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    logger.error("Failed to resolve copy-trader switch proposal from Telegram button: %s", exc)
+                    await query.answer(text="Failed to resolve curator proposal.")
+            return
+
         # --- Update prompt callbacks ---
         if not data.startswith("update_prompt:"):
             return

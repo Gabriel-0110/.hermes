@@ -228,6 +228,7 @@ class SlackAdapter(BasePlatformAdapter):
             return True
 
         except Exception as e:  # pragma: no cover - defensive logging
+            self._release_platform_lock()
             logger.error("[Slack] Connection failed: %s", e, exc_info=True)
             return False
 

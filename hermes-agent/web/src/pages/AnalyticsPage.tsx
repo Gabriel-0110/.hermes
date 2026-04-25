@@ -276,7 +276,7 @@ function PaperShadowTable({ strategies }: { strategies: PaperShadowStrategyEntry
       <CardHeader>
         <div className="flex items-center gap-2">
           <TrendingUp className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Live vs Paper-Shadow</CardTitle>
+          <CardTitle className="text-base">Mission Control · Live vs Paper-Shadow</CardTitle>
         </div>
       </CardHeader>
       <CardContent>
@@ -412,6 +412,16 @@ export default function AnalyticsPage() {
 
           {shadowData && (
             <>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-muted-foreground" />
+                  <h2 className="text-lg font-semibold tracking-tight">Mission Control</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Compare live execution quality against the paper-shadow account on a per-strategy basis.
+                </p>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <SummaryCard
                   icon={TrendingUp}

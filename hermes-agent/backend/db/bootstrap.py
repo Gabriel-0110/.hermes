@@ -30,6 +30,7 @@ HYPERTABLE_SPECS: tuple[tuple[str, str], ...] = (
     ("chronos_forecasts", "forecast_time"),
     ("research_memos", "memo_time"),
     ("strategy_evaluations", "eval_time"),
+    ("copy_trader_scores", "score_time"),
 )
 
 _BOOTSTRAPPED_URLS: set[str] = set()
