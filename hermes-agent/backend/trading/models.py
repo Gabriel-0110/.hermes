@@ -42,6 +42,8 @@ class TradeProposalLeg(BaseModel):
     limit_price: float | None = Field(default=None, gt=0)
     venue: str = Field(default="bitmart", min_length=2, max_length=32)
     account_type: Literal["spot", "swap", "futures", "contract"] = "spot"
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     reduce_only: bool = False
     position_side: Literal["long", "short"] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -73,6 +75,8 @@ class ExecutionRequestLeg(BaseModel):
     client_order_id: str | None = Field(default=None, min_length=1, max_length=64)
     venue: str = Field(default="bitmart", min_length=2, max_length=32)
     account_type: Literal["spot", "swap", "futures", "contract"] = "spot"
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     reduce_only: bool = False
     position_side: Literal["long", "short"] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -109,6 +113,8 @@ class TradeProposal(BaseModel):
     strategy_template_id: str | None = Field(default=None, max_length=160)
     timeframe: str | None = Field(default=None, max_length=32)
     limit_price: float | None = Field(default=None, gt=0)
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     stop_loss_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
     require_operator_approval: bool | None = None
@@ -140,6 +146,8 @@ class RiskRejectionReason(StrEnum):
     EXCHANGE_NOT_CONFIGURED = "exchange_not_configured"
     EXECUTION_FAILED = "execution_failed"
     DRAWDOWN_LIMIT_BREACHED = "drawdown_limit_breached"
+    POSITION_LIMIT_EXCEEDED = "position_limit_exceeded"
+    LEVERAGE_LIMIT_EXCEEDED = "leverage_limit_exceeded"
 
 
 class PolicyDecision(BaseModel):
@@ -196,6 +204,8 @@ class ExecutionRequest(BaseModel):
     strategy_id: str | None = Field(default=None, max_length=160)
     strategy_template_id: str | None = Field(default=None, max_length=160)
     timeframe: str | None = Field(default=None, max_length=32)
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     stop_loss_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
     stop_guidance: str | None = Field(default=None, max_length=2000)
@@ -232,11 +242,27 @@ class ExecutionRequest(BaseModel):
                 self.order_type,
                 "reduce-only" if self.reduce_only else "",
                 self.position_side or "",
+                f"leverage={self.leverage}" if self.leverage is not None else "",
+                f"margin={self.margin_mode}" if self.margin_mode else "",
+                f"stop_loss={self.stop_loss_price}" if self.stop_loss_price is not None else "",
+                f"take_profit={self.take_profit_price}" if self.take_profit_price is not None else "",
             ]
             if self.legs:
                 stable_parts.append("paired")
                 stable_parts.extend(
-                    f"{leg.venue}:{leg.account_type}:{leg.symbol}:{leg.side}:{leg.order_type}"
+                    ":".join(
+                        part
+                        for part in (
+                            leg.venue,
+                            leg.account_type,
+                            leg.symbol,
+                            leg.side,
+                            leg.order_type,
+                            f"leverage={leg.leverage}" if leg.leverage is not None else "",
+                            f"margin={leg.margin_mode}" if leg.margin_mode else "",
+                        )
+                        if part
+                    )
                     for leg in self.legs
                 )
             self.idempotency_key = ":".join(part for part in stable_parts if part)

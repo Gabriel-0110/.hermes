@@ -44,7 +44,10 @@ def set_kill_switch(payload: dict) -> dict:
 
 
 class SetRiskLimitsInput(BaseModel):
+    symbol: str | None = None
     max_position_usd: float | None = None
+    max_notional_usd: float | None = None
+    max_leverage: float | None = None
     max_daily_loss_usd: float | None = None
     drawdown_limit_pct: float | None = None
     carry_trade_max_equity_pct: float | None = None
@@ -62,13 +65,23 @@ def set_risk_limits(payload: dict) -> dict:
         existing_raw = redis.get(_LIMITS_KEY)
         existing = json.loads(existing_raw) if existing_raw else {}
 
-        if args.max_position_usd is not None:
+        symbol = str(args.symbol or "").strip().upper() or None
+        symbol_limits = existing.setdefault("symbol_limits", {}) if isinstance(existing, dict) else {}
+        target = existing
+        if symbol is not None:
+            target = symbol_limits.setdefault(symbol, {})
+
+        if args.max_position_usd is not None and symbol is None:
             existing["max_position_usd"] = args.max_position_usd
-        if args.max_daily_loss_usd is not None:
+        if args.max_notional_usd is not None:
+            target["max_notional_usd" if symbol is not None else "max_position_usd"] = args.max_notional_usd
+        if args.max_leverage is not None:
+            target["max_leverage"] = args.max_leverage
+        if args.max_daily_loss_usd is not None and symbol is None:
             existing["max_daily_loss_usd"] = args.max_daily_loss_usd
-        if args.drawdown_limit_pct is not None:
+        if args.drawdown_limit_pct is not None and symbol is None:
             existing["drawdown_limit_pct"] = args.drawdown_limit_pct
-        if args.carry_trade_max_equity_pct is not None:
+        if args.carry_trade_max_equity_pct is not None and symbol is None:
             existing["carry_trade_max_equity_pct"] = args.carry_trade_max_equity_pct
 
         redis.set(_LIMITS_KEY, json.dumps(existing))

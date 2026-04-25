@@ -92,6 +92,104 @@ def test_policy_decision_marks_live_blocker_rejections(monkeypatch) -> None:
     assert RiskRejectionReason.LIVE_TRADING_DISABLED in decision.rejection_reasons
 
 
+def test_policy_decision_resizes_to_symbol_notional_cap(monkeypatch) -> None:
+    monkeypatch.setattr("backend.trading.policy_engine.current_trading_mode", lambda: "paper")
+    monkeypatch.setattr("backend.trading.policy_engine.live_trading_blockers", lambda: [])
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_kill_switch_state",
+        lambda: {"active": False, "reason": None},
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_portfolio_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {
+                "updated_at": "2026-04-25T00:00:00+00:00",
+                "positions": [{"symbol": "BTC", "notional_usd": 1800.0}],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {
+                "max_position_usd": 5000.0,
+                "max_leverage": 10.0,
+                "symbol_limits": {"BTCUSDT": {"max_notional_usd": 2000.0, "max_leverage": 5.0}},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_approval",
+        lambda payload: {
+            "data": {
+                "approved": True,
+                "max_size_usd": payload["proposed_size_usd"],
+                "confidence": 0.8,
+                "reasons": [],
+                "stop_guidance": "Use the defined invalidation.",
+            }
+        },
+    )
+
+    proposal = {**_proposal_payload(), "requested_size_usd": 500.0, "leverage": 3.0}
+    decision = evaluate_trade_proposal(proposal)
+
+    assert decision.status == "approved"
+    assert decision.approved_size_usd == 200.0
+    assert RiskRejectionReason.POSITION_LIMIT_EXCEEDED not in decision.rejection_reasons
+    assert any("configured position cap" in warning for warning in decision.warnings)
+
+
+def test_policy_decision_blocks_when_requested_leverage_exceeds_cap(monkeypatch) -> None:
+    monkeypatch.setattr("backend.trading.policy_engine.current_trading_mode", lambda: "paper")
+    monkeypatch.setattr("backend.trading.policy_engine.live_trading_blockers", lambda: [])
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_kill_switch_state",
+        lambda: {"active": False, "reason": None},
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_portfolio_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {
+                "updated_at": "2026-04-25T00:00:00+00:00",
+                "positions": [{"symbol": "BTCUSDT", "notional_usd": 500.0}],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_state",
+        lambda payload=None: {
+            "meta": {"ok": True, "warnings": []},
+            "data": {
+                "max_position_usd": 5000.0,
+                "symbol_limits": {"BTCUSDT": {"max_notional_usd": 2500.0, "max_leverage": 3.0}},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_risk_approval",
+        lambda payload: {
+            "data": {
+                "approved": True,
+                "max_size_usd": payload["proposed_size_usd"],
+                "confidence": 0.9,
+                "reasons": [],
+                "stop_guidance": "Use the defined invalidation.",
+            }
+        },
+    )
+
+    proposal = {**_proposal_payload(), "requested_size_usd": 300.0, "leverage": 8.0}
+    decision = evaluate_trade_proposal(proposal)
+
+    assert decision.status == "rejected"
+    assert decision.approved is False
+    assert RiskRejectionReason.LEVERAGE_LIMIT_EXCEEDED in decision.rejection_reasons
+
+
 def test_dispatch_records_manual_review_when_approval_required(monkeypatch) -> None:
     published: list[TradingEvent] = []
     decisions: list[tuple[str, str]] = []

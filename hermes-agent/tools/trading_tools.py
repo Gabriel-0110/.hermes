@@ -59,6 +59,7 @@ from backend.tools.get_funding_rates import get_funding_rates
 from backend.tools.get_liquidation_zones import get_liquidation_zones
 from backend.tools.get_recent_trades import get_recent_trades
 from backend.tools.get_execution_quality import get_execution_quality
+from backend.tools.get_chronos_score import get_chronos_score
 from backend.tools.get_forecast_projection import get_forecast_projection
 from backend.tools.list_strategies import list_strategies
 from backend.tools.evaluate_strategy import evaluate_strategy
@@ -370,6 +371,10 @@ _TRADING_TOOLS = {
                 "order_type": {"type": "string", "enum": ["market", "limit", "stop", "stop_limit"]},
                 "amount": {"type": "number", "exclusiveMinimum": 0},
                 "price": {"type": "number", "exclusiveMinimum": 0},
+                "stop_loss_price": {"type": "number", "exclusiveMinimum": 0},
+                "take_profit_price": {"type": "number", "exclusiveMinimum": 0},
+                "leverage": {"type": "number", "exclusiveMinimum": 0},
+                "margin_mode": {"type": "string", "enum": ["cross", "isolated"]},
                 "client_order_id": {"type": "string"},
                 "time_in_force": {"type": "string", "enum": ["GTC", "IOC", "FOK"]},
                 "post_only": {"type": "boolean"},
@@ -627,17 +632,36 @@ _TRADING_TOOLS = {
         "handler": set_kill_switch,
     },
     "set_risk_limits": {
-        "description": "Persist shared risk limits for max position, daily loss, and drawdown cap.",
+        "description": "Persist shared global or symbol-specific risk limits for position notional, leverage, daily loss, and drawdown cap.",
         "parameters": {
             "type": "object",
             "properties": {
+                "symbol": {"type": "string"},
                 "max_position_usd": {"type": "number", "minimum": 0},
+                "max_notional_usd": {"type": "number", "minimum": 0},
+                "max_leverage": {"type": "number", "minimum": 0},
                 "max_daily_loss_usd": {"type": "number", "minimum": 0},
                 "drawdown_limit_pct": {"type": "number", "minimum": 0},
+                "carry_trade_max_equity_pct": {"type": "number", "minimum": 0},
             },
             "required": [],
         },
         "handler": set_risk_limits,
+    },
+    "get_chronos_score": {
+        "description": "Get a cached Chronos forecast alignment score for a symbol and trade direction.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "direction": {"type": "string", "enum": ["long", "short", "watch"]},
+                "interval": {"type": "string"},
+                "horizon": {"type": "integer", "minimum": 1, "maximum": 60},
+                "max_age_minutes": {"type": "integer", "minimum": 1, "maximum": 1440},
+            },
+            "required": ["symbol"],
+        },
+        "handler": get_chronos_score,
     },
     "get_forecast_projection": {
         "description": "Produce a research-owned low/median/high forward projection package from normalized historical OHLCV data.",

@@ -25,6 +25,7 @@ class ScoredCandidate(BaseModel):
     symbol: str
     direction: Literal["long", "short", "watch"]
     confidence: float
+    chronos_score: float | None = None
     rationale: str
     strategy_name: str
     strategy_version: str = "1.0.0"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.strategies.chronos_scoring import get_chronos_alignment_score
 from backend.strategies.funding import apply_funding_rate_modifier
 from backend.strategies.performance_priors import scale_confidence_by_prior
 from backend.strategies.registry import ScoredCandidate, STRATEGY_REGISTRY
@@ -24,6 +25,7 @@ def score_breakout(
     order_book_data: dict | None = None,
     regime: str = "unknown",
     funding_data: Any | None = None,
+    timeframe: str = "4h",
 ) -> ScoredCandidate:
     """Score `symbol` with the breakout strategy.
 
@@ -147,19 +149,25 @@ def score_breakout(
         funding_data=funding_data,
     )
 
-    confidence = round(min(max(score, 0.01), 0.95), 2)
-    confidence, prior = scale_confidence_by_prior(_STRATEGY.name, confidence)
-    if prior.resolved_count and abs(prior.multiplier - 1.0) >= 0.02:
-        reasons.append(
-            f"Strategy prior adjusted confidence x{prior.multiplier:.2f} from {prior.resolved_count} resolved signals"
-        )
-
     if score >= 0.30:
         direction = "long"
     elif score <= -0.25:
         direction = "short"
     else:
         direction = "watch"
+
+    raw_confidence = round(min(max(abs(score), 0.01), 0.95), 2)
+    chronos = get_chronos_alignment_score(symbol, direction, interval=timeframe)
+    confidence = round(min(max(raw_confidence * (0.5 + 0.5 * chronos.score), 0.01), 0.95), 2)
+    confidence, prior = scale_confidence_by_prior(_STRATEGY.name, confidence)
+    if prior.resolved_count and abs(prior.multiplier - 1.0) >= 0.02:
+        reasons.append(
+            f"Strategy prior adjusted confidence x{prior.multiplier:.2f} from {prior.resolved_count} resolved signals"
+        )
+    if chronos.error:
+        reasons.append("Chronos forecast unavailable — applied neutral alignment weight")
+    else:
+        reasons.append(f"Chronos alignment {chronos.score:.2f} on {timeframe} / {chronos.horizon} bars")
 
     if not reasons:
         reasons = ["Insufficient indicator data for breakout assessment"]
@@ -168,6 +176,7 @@ def score_breakout(
         symbol=symbol,
         direction=direction,
         confidence=confidence,
+        chronos_score=chronos.score,
         rationale="; ".join(reasons),
         strategy_name=_STRATEGY.name,
         strategy_version=_STRATEGY.version,

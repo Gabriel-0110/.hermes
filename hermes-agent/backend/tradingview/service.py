@@ -205,17 +205,19 @@ class TradingViewIngestionService:
         for event in stream_events:
             try:
                 envelope = self.event_publisher.publish(event)
+                redis_id = getattr(envelope, "redis_id", None)
+                stream_name = getattr(envelope, "stream", None)
                 logger.info(
                     "TradingView Redis publish succeeded: event_type=%s alert_id=%s redis_id=%s",
                     event.event_type,
                     alert.id,
-                    envelope.redis_id,
+                    redis_id,
                 )
                 observability.record_execution_event(
                     status="published",
                     event_type=event.event_type,
-                    summarized_output={"alert_id": alert.id, "redis_id": envelope.redis_id},
-                    metadata={"stream": envelope.stream, "producer": event.producer},
+                    summarized_output={"alert_id": alert.id, "redis_id": redis_id},
+                    metadata={"stream": stream_name, "producer": event.producer},
                 )
             except RedisError:
                 logger.exception(

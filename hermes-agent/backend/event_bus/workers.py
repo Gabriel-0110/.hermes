@@ -248,9 +248,9 @@ def _score_tradingview_candidate(
     funding_data = _fetch_funding_data(symbol)
 
     if strategy_name == "momentum":
-        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data, timeframe=timeframe)
     if strategy_name == "mean_reversion":
-        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data, timeframe=timeframe)
     if strategy_name == "breakout":
         return scorer(
             symbol,
@@ -259,6 +259,7 @@ def _score_tradingview_candidate(
             order_book_data=_fetch_order_book_data(_funding_symbol(symbol)),
             regime=regime,
             funding_data=funding_data,
+            timeframe=timeframe,
         )
 
     raise ValueError(f"Unsupported strategy for TradingView signal scoring: {strategy_name}")
@@ -827,6 +828,8 @@ def _place_paired_live_order(event: TradingEventEnvelope, *, request) -> bool:
                 amount=amount,
                 price=float(leg.price) if leg.price is not None else None,
                 client_order_id=leg.client_order_id,
+                leverage=leg.leverage,
+                margin_mode=leg.margin_mode,
                 reduce_only=leg.reduce_only,
                 position_side=leg.position_side,
             )
@@ -1009,6 +1012,10 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
             ),
             price=float(request.price) if request.price is not None else None,
             client_order_id=request.client_order_id,
+            leverage=request.leverage,
+            margin_mode=request.margin_mode,
+            stop_loss_price=request.stop_loss_price,
+            take_profit_price=request.take_profit_price,
         )
         logger.info(
             "execution_handler: live order placed request_id=%s order_id=%s symbol=%s",

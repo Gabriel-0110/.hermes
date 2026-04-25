@@ -26,6 +26,7 @@ HYPERTABLE_SPECS: tuple[tuple[str, str], ...] = (
     ("replay_results", "created_at"),
     ("evaluation_scores", "created_at"),
     ("regression_comparisons", "created_at"),
+    ("chronos_forecasts", "forecast_time"),
     ("research_memos", "memo_time"),
     ("strategy_evaluations", "eval_time"),
 )

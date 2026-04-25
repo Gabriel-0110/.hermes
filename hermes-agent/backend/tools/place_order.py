@@ -17,6 +17,10 @@ class PlaceOrderInput(BaseModel):
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
     amount: float = Field(gt=0)
     price: float | None = Field(default=None, gt=0)
+    stop_loss_price: float | None = Field(default=None, gt=0)
+    take_profit_price: float | None = Field(default=None, gt=0)
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     client_order_id: str | None = Field(default=None, min_length=1, max_length=64)
     time_in_force: Literal["GTC", "IOC", "FOK"] | None = None
     post_only: bool = False
@@ -56,6 +60,10 @@ def place_order(payload: dict | None = None) -> dict:
             order_type=args.order_type,
             amount=args.amount,
             price=args.price,
+            leverage=args.leverage,
+            margin_mode=args.margin_mode,
+            stop_loss_price=args.stop_loss_price,
+            take_profit_price=args.take_profit_price,
             client_order_id=args.client_order_id,
             reduce_only=args.reduce_only,
             position_side=args.position_side,
@@ -213,6 +221,10 @@ def place_order(payload: dict | None = None) -> dict:
             order_type=args.order_type,
             amount=args.amount,
             price=args.price,
+            stop_loss_price=args.stop_loss_price,
+            take_profit_price=args.take_profit_price,
+            leverage=args.leverage,
+            margin_mode=args.margin_mode,
             client_order_id=args.client_order_id,
             time_in_force=args.time_in_force,
             post_only=args.post_only,

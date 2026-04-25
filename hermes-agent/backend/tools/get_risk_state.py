@@ -39,16 +39,29 @@ def get_risk_state(_: dict | None = None) -> dict:
 
         # --- Risk limits ---
         max_position_usd: float | None = None
+        max_leverage: float | None = None
         max_daily_loss_usd: float | None = None
         drawdown_limit_pct: float = 10.0
         carry_trade_max_equity_pct: float = 30.0
+        symbol_limits: dict[str, dict[str, float | None]] = {}
         try:
             limits_raw = redis.get(_LIMITS_KEY)
+            limits: dict[str, object] = {}
             if limits_raw:
                 limits = json.loads(limits_raw)
                 max_position_usd = limits.get("max_position_usd")
+                max_leverage = limits.get("max_leverage")
                 max_daily_loss_usd = limits.get("max_daily_loss_usd")
                 drawdown_limit_pct = float(limits.get("drawdown_limit_pct", 10.0))
+                raw_symbol_limits = limits.get("symbol_limits") or {}
+                if isinstance(raw_symbol_limits, dict):
+                    for symbol, symbol_limit in raw_symbol_limits.items():
+                        if not isinstance(symbol_limit, dict):
+                            continue
+                        symbol_limits[str(symbol).upper()] = {
+                            "max_notional_usd": _float_or_none(symbol_limit.get("max_notional_usd") or symbol_limit.get("max_position_usd")),
+                            "max_leverage": _float_or_none(symbol_limit.get("max_leverage")),
+                        }
             carry_trade_max_equity_pct = float(limits.get("carry_trade_max_equity_pct", 30.0))
         except Exception as exc:
             logger.warning("Failed to read risk limits from Redis: %s", exc)
@@ -86,9 +99,11 @@ def get_risk_state(_: dict | None = None) -> dict:
             kill_switch_reason=kill_switch_reason,
             kill_switch_set_at=kill_switch_set_at,
             max_position_usd=max_position_usd,
+            max_leverage=_float_or_none(max_leverage),
             max_daily_loss_usd=max_daily_loss_usd,
             drawdown_limit_pct=drawdown_limit_pct,
             carry_trade_max_equity_pct=carry_trade_max_equity_pct,
+            symbol_limits=symbol_limits,
             current_equity_usd=current_equity_usd,
             peak_equity_usd=peak_equity_usd,
             current_drawdown_pct=current_drawdown_pct,
@@ -97,3 +112,12 @@ def get_risk_state(_: dict | None = None) -> dict:
         return envelope("get_risk_state", [provider_ok("REDIS")], state.model_dump(mode="json"))
 
     return run_tool("get_risk_state", _run)
+
+
+def _float_or_none(value) -> float | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

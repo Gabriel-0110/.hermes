@@ -400,6 +400,7 @@ class ExecutionOrder(BaseModel):
     time_in_force: str | None = None
     post_only: bool | None = None
     reduce_only: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -543,9 +544,11 @@ class RiskState(BaseModel):
     kill_switch_reason: str | None = None
     kill_switch_set_at: str | None = None
     max_position_usd: float | None = None
+    max_leverage: float | None = None
     max_daily_loss_usd: float | None = None
     drawdown_limit_pct: float = 10.0
     carry_trade_max_equity_pct: float = 30.0
+    symbol_limits: dict[str, dict[str, float | None]] = Field(default_factory=dict)
     current_equity_usd: float | None = None
     peak_equity_usd: float | None = None
     current_drawdown_pct: float | None = None

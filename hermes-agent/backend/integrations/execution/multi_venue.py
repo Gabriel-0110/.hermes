@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
 import json
@@ -113,6 +114,18 @@ def _classify_write_failure(value: Any) -> str:
     if any(term in text for term in ("auth", "signature", "sign", "unauthorized", "permission", "api key", "memo")):
         return "auth_failed"
     return "unknown_write_failure"
+
+
+def _format_bitmart_numeric(value: float | int | str | None) -> str | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        normalized = format(Decimal(str(value)).normalize(), "f")
+    except (InvalidOperation, ValueError, TypeError):
+        return str(value)
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+    return normalized or "0"
 
 _EXECUTION_TOOLS = [
     "get_exchange_balances",
@@ -479,6 +492,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: Literal["cross", "isolated"] | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -491,6 +508,10 @@ class VenueExecutionClient:
             "order_type": order_type,
             "amount": amount,
             "price": price,
+            "stop_loss_price": stop_loss_price,
+            "take_profit_price": take_profit_price,
+            "leverage": leverage,
+            "margin_mode": margin_mode,
             "client_order_id": client_order_id,
             "time_in_force": time_in_force,
             "post_only": post_only,
@@ -510,6 +531,10 @@ class VenueExecutionClient:
                 order_type=order_type,
                 amount=amount,
                 price=price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                leverage=leverage,
+                margin_mode=margin_mode,
                 client_order_id=client_order_id,
                 time_in_force=time_in_force,
                 post_only=post_only,
@@ -558,6 +583,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: Literal["cross", "isolated"] | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -571,6 +600,10 @@ class VenueExecutionClient:
                 order_type=order_type,
                 amount=amount,
                 price=price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                leverage=leverage,
+                margin_mode=margin_mode,
                 client_order_id=client_order_id,
                 time_in_force=time_in_force,
                 post_only=post_only,
@@ -590,6 +623,14 @@ class VenueExecutionClient:
             params["reduceOnly"] = True
         if position_side:
             params["positionSide"] = position_side.upper()
+        if stop_loss_price is not None:
+            params["stopLossPrice"] = stop_loss_price
+        if take_profit_price is not None:
+            params["takeProfitPrice"] = take_profit_price
+        if leverage is not None:
+            params["leverage"] = leverage
+        if margin_mode:
+            params["marginMode"] = margin_mode
         logger.info("Submitting %s order for %s %s %s", self.provider.name, symbol, side, order_type)
         order = self._call_exchange(
             "create_order",
@@ -859,6 +900,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: Literal["cross", "isolated"] | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -899,7 +944,16 @@ class VenueExecutionClient:
         if client_order_id:
             request["client_order_id"] = client_order_id
         if not reduce_only:
-            request["open_type"] = os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross"
+            request["open_type"] = (margin_mode or os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross")).strip().lower() or "cross"
+            leverage_value = _format_bitmart_numeric(leverage)
+            if leverage_value is not None:
+                request["leverage"] = leverage_value
+            if take_profit_price is not None:
+                request["preset_take_profit_price"] = exchange.price_to_precision(symbol, take_profit_price)
+                request["preset_take_profit_price_type"] = 1
+            if stop_loss_price is not None:
+                request["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
+                request["preset_stop_loss_price_type"] = 1
 
         signed = self._build_bitmart_signed_futures_request(request)
         logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
@@ -946,6 +1000,13 @@ class VenueExecutionClient:
             time_in_force=time_in_force,
             post_only=post_only,
             reduce_only=reduce_only,
+            metadata={
+                "margin_mode": request.get("open_type"),
+                "leverage": request.get("leverage"),
+                "preset_take_profit_price": request.get("preset_take_profit_price"),
+                "preset_stop_loss_price": request.get("preset_stop_loss_price"),
+                "client_order_id": client_order_id,
+            },
             created_at=submitted_at,
             updated_at=submitted_at,
         )

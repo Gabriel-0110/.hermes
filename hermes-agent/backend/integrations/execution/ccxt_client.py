@@ -291,12 +291,39 @@ class CCXTExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: str | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
         reduce_only: bool = False,
         position_side: str | None = None,
     ) -> ExecutionOrder:
+        if self.account_type in {"contract", "futures", "swap"} and any(
+            value is not None for value in (stop_loss_price, take_profit_price, leverage, margin_mode)
+        ):
+            from backend.integrations.execution.multi_venue import VenueExecutionClient
+
+            delegated = VenueExecutionClient(self.exchange_id, account_type=self.account_type)
+            return delegated.place_order(
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                amount=amount,
+                price=price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                leverage=leverage,
+                margin_mode=margin_mode,  # type: ignore[arg-type]
+                client_order_id=client_order_id,
+                time_in_force=time_in_force,
+                post_only=post_only,
+                reduce_only=reduce_only,
+                position_side=position_side,
+            )
+
         self._ensure_markets_loaded()
         exchange = self._get_exchange()
         params: dict[str, Any] = {}
@@ -310,6 +337,14 @@ class CCXTExecutionClient:
             params["reduceOnly"] = True
         if position_side:
             params["positionSide"] = position_side.upper()
+        if stop_loss_price is not None:
+            params["stopLossPrice"] = stop_loss_price
+        if take_profit_price is not None:
+            params["takeProfitPrice"] = take_profit_price
+        if leverage is not None:
+            params["leverage"] = leverage
+        if margin_mode:
+            params["marginMode"] = margin_mode
         # TODO(openclaw): confirm any BitMart-specific spot/futures flags that should be normalized here before widening exchange support.
         logger.info("Submitting BitMart order for %s %s %s", symbol, side, order_type)
         order = self._call_exchange(

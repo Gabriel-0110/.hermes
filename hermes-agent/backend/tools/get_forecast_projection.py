@@ -147,6 +147,7 @@ def get_forecast_projection(payload: dict) -> dict:
             projections = _deterministic_projection(closes, args.horizon)
 
         provider = "amazon_chronos_2" if chronos_available else "deterministic_research_projection"
+        final_projection = projections[-1] if projections else {"low": None, "median": None, "high": None}
 
         return envelope(
             "get_forecast_projection",
@@ -155,9 +156,13 @@ def get_forecast_projection(payload: dict) -> dict:
                 "symbol": args.symbol.upper(),
                 "interval": args.interval,
                 "history_points": len(closes),
+                "last_close": closes[-1],
                 "horizon": args.horizon,
                 "forecast_model": provider,
                 "forecast_is_trade_signal": False,
+                "final_low": final_projection.get("low"),
+                "final_median": final_projection.get("median"),
+                "final_high": final_projection.get("high"),
                 "scenarios": projections,
             },
             warnings=warnings,

@@ -4,12 +4,176 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.models import RiskState
 from backend.integrations.execution.mode import current_trading_mode, live_trading_blockers
 from backend.tools.get_portfolio_state import get_portfolio_state
 from backend.tools.get_risk_approval import get_risk_approval
+from backend.tools.get_risk_state import get_risk_state
 
 from .models import PolicyDecision, RiskRejectionReason, TradeProposal
 from .safety import approval_required, get_kill_switch_state
+
+_QUOTE_SUFFIXES = ("USDT", "USDC", "USD", "BTC", "ETH")
+
+
+def _tool_data(response: dict | None, default):
+    if not isinstance(response, dict):
+        return default
+    data = response.get("data")
+    return default if data is None else data
+
+
+def _normalize_symbol_token(value: str | None) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _symbol_aliases(value: str | None) -> set[str]:
+    normalized = _normalize_symbol_token(value)
+    if not normalized:
+        return set()
+    aliases = {normalized}
+    for quote in _QUOTE_SUFFIXES:
+        if normalized.endswith(quote) and len(normalized) > len(quote):
+            aliases.add(normalized[: -len(quote)])
+            break
+    return aliases
+
+
+def _portfolio_positions() -> list[dict[str, Any]]:
+    try:
+        snapshot = get_portfolio_state({})
+    except Exception:
+        return []
+    positions = _tool_data(snapshot, {}).get("positions") if isinstance(_tool_data(snapshot, {}), dict) else []
+    return positions if isinstance(positions, list) else []
+
+
+def _current_symbol_notional(symbol: str, positions: list[dict[str, Any]]) -> float:
+    target_aliases = _symbol_aliases(symbol)
+    if not target_aliases:
+        return 0.0
+
+    total = 0.0
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        if not (_symbol_aliases(position.get("symbol")) & target_aliases):
+            continue
+        try:
+            total += abs(float(position.get("notional_usd") or 0.0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _load_risk_state() -> RiskState | None:
+    try:
+        response = get_risk_state({})
+        data = _tool_data(response, {})
+        if isinstance(data, dict):
+            return RiskState.model_validate(data)
+    except Exception:
+        return None
+    return None
+
+
+def _resolve_symbol_limits(state: RiskState, symbol: str) -> dict[str, float | None]:
+    symbol_limits = state.symbol_limits or {}
+    for alias in _symbol_aliases(symbol):
+        candidate = symbol_limits.get(alias)
+        if isinstance(candidate, dict):
+            return {
+                "max_notional_usd": _float_or_none(candidate.get("max_notional_usd")),
+                "max_leverage": _float_or_none(candidate.get("max_leverage")),
+            }
+    return {"max_notional_usd": None, "max_leverage": None}
+
+
+def _extract_requested_leverage(proposal: TradeProposal) -> float | None:
+    candidates: list[Any] = [
+        proposal.leverage,
+        proposal.metadata.get("leverage"),
+        proposal.metadata.get("requested_leverage"),
+    ]
+    for leg in proposal.legs:
+        candidates.extend(
+            [
+                leg.leverage,
+                leg.metadata.get("leverage"),
+                leg.metadata.get("requested_leverage"),
+            ]
+        )
+
+    leverage_values = [value for value in (_float_or_none(candidate) for candidate in candidates) if value is not None]
+    if not leverage_values:
+        return None
+    return max(leverage_values)
+
+
+def _apply_shared_risk_limits(
+    proposal: TradeProposal,
+    *,
+    approved_size_usd: float,
+    warnings: list[str],
+    blockers: list[str],
+    rejection_reasons: list[RiskRejectionReason],
+    trace: list[str],
+) -> float:
+    risk_state = _load_risk_state()
+    if risk_state is None:
+        trace.append("risk_limits=unavailable")
+        return approved_size_usd
+
+    for warning in risk_state.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+
+    symbol_limits = _resolve_symbol_limits(risk_state, proposal.symbol)
+    notional_cap = symbol_limits.get("max_notional_usd") or risk_state.max_position_usd
+    current_notional = _current_symbol_notional(proposal.symbol, _portfolio_positions())
+    trace.append(
+        "risk_limits="
+        f"current_symbol_notional={current_notional:.2f},"
+        f"notional_cap={notional_cap if notional_cap is not None else 'none'},"
+        f"max_leverage={symbol_limits.get('max_leverage') or risk_state.max_leverage or 'none'}"
+    )
+
+    if notional_cap is not None:
+        remaining_capacity = float(notional_cap) - current_notional
+        if remaining_capacity <= 0:
+            blockers.append(
+                f"Position limit exceeded for {proposal.symbol}: current exposure {current_notional:.2f} USD "
+                f"already meets/exceeds the configured cap of {float(notional_cap):.2f} USD."
+            )
+            rejection_reasons.append(RiskRejectionReason.POSITION_LIMIT_EXCEEDED)
+            trace.append("risk_limits=position_cap_blocked")
+            return 0.0
+        if approved_size_usd > remaining_capacity:
+            warnings.append(
+                f"Proposal resized from {approved_size_usd:.2f} USD to {remaining_capacity:.2f} USD to stay within the configured position cap for {proposal.symbol}."
+            )
+            approved_size_usd = remaining_capacity
+            trace.append("risk_limits=position_cap_resized")
+
+    requested_leverage = _extract_requested_leverage(proposal)
+    leverage_cap = symbol_limits.get("max_leverage") or risk_state.max_leverage
+    if leverage_cap is not None and requested_leverage is not None and requested_leverage > float(leverage_cap):
+        blockers.append(
+            f"Requested leverage {requested_leverage:g}x exceeds the configured cap of {float(leverage_cap):g}x for {proposal.symbol}."
+        )
+        rejection_reasons.append(RiskRejectionReason.LEVERAGE_LIMIT_EXCEEDED)
+        trace.append("risk_limits=leverage_cap_blocked")
+
+    return max(approved_size_usd, 0.0)
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _portfolio_warnings() -> list[str]:
@@ -89,6 +253,15 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
                 f"{approved_size_usd:.2f} USD by policy."
             )
             trace.append("size=resized")
+
+    approved_size_usd = _apply_shared_risk_limits(
+        proposal,
+        approved_size_usd=approved_size_usd,
+        warnings=warnings,
+        blockers=blockers,
+        rejection_reasons=rejection_reasons,
+        trace=trace,
+    )
 
     requires_operator_approval = (
         proposal.require_operator_approval

@@ -64,17 +64,17 @@ def evaluate_strategy(payload: dict) -> dict:
         # Run selected strategy scorer
         name = args.strategy_name
         if name == "momentum":
-            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
+            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data, timeframe=args.timeframe)
         elif name == "mean_reversion":
-            candidate = score_mean_reversion(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
+            candidate = score_mean_reversion(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data, timeframe=args.timeframe)
         elif name == "breakout":
             # Fetch OHLCV for volume analysis
             ohlcv_resp = get_ohlcv({"symbol": indicator_symbol, "interval": args.timeframe, "limit": 30})
             ohlcv_bars = ohlcv_resp.get("data", []) if ohlcv_resp.get("ok") else []
-            candidate = score_breakout(raw_symbol.split("/")[0], ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data)
+            candidate = score_breakout(raw_symbol.split("/")[0], ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data, timeframe=args.timeframe)
         else:
             # Fallback — should not reach here due to registry check above
-            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data)
+            candidate = score_momentum(raw_symbol.split("/")[0], ind_data, regime, funding_data=funding_data, timeframe=args.timeframe)
 
         # Persist evaluation
         now = datetime.now(UTC)
@@ -87,7 +87,7 @@ def evaluate_strategy(payload: dict) -> dict:
             direction=candidate.direction,
             confidence=candidate.confidence,
             rationale=candidate.rationale,
-            metadata_json={"regime": regime},
+            metadata_json={"regime": regime, "chronos_score": candidate.chronos_score},
         )
         try:
             engine = get_engine()
@@ -108,6 +108,7 @@ def evaluate_strategy(payload: dict) -> dict:
                 "timeframe": args.timeframe,
                 "direction": candidate.direction,
                 "confidence": candidate.confidence,
+                "chronos_score": candidate.chronos_score,
                 "rationale": candidate.rationale,
                 "regime": regime,
                 "eval_time": now.isoformat(),

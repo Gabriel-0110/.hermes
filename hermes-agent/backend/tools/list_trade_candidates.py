@@ -56,11 +56,11 @@ def list_trade_candidates(_: dict | None = None) -> dict:
                 for strategy_name in STRATEGY_REGISTRY:
                     try:
                         if strategy_name == "momentum":
-                            s = score_momentum(clean, ind_data, regime, funding_data=funding_data)
+                            s = score_momentum(clean, ind_data, regime, funding_data=funding_data, timeframe="1h")
                         elif strategy_name == "mean_reversion":
-                            s = score_mean_reversion(clean, ind_data, regime, funding_data=funding_data)
+                            s = score_mean_reversion(clean, ind_data, regime, funding_data=funding_data, timeframe="1h")
                         elif strategy_name == "breakout":
-                            s = score_breakout(clean, ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data)
+                            s = score_breakout(clean, ind_data, ohlcv_bars=ohlcv_bars, regime=regime, funding_data=funding_data, timeframe="1h")
                         else:
                             continue
                         scored.append(s)
@@ -103,6 +103,7 @@ def list_trade_candidates(_: dict | None = None) -> dict:
                 "symbol": c.symbol,
                 "direction": c.direction,
                 "confidence": c.confidence,
+                "chronos_score": c.chronos_score,
                 "rationale": c.rationale,
                 "strategy_name": c.strategy_name,
                 "strategy_version": c.strategy_version,
@@ -138,6 +139,7 @@ def _persist_evaluations(candidates: list[ScoredCandidate]) -> None:
                 direction=c.direction,
                 confidence=c.confidence,
                 rationale=c.rationale,
+                metadata_json={"chronos_score": c.chronos_score},
             )
             for c in candidates
         ]

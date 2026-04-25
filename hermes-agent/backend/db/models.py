@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, Index, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -520,6 +520,34 @@ class RegressionComparisonRow(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class ChronosForecastRow(Base):
+    """Cached Chronos forecast snapshots used by strategy scorers."""
+
+    __tablename__ = "chronos_forecasts"
+    __table_args__ = (
+        Index("ix_chronos_forecasts_symbol_interval_time", "symbol", "interval", "forecast_time"),
+        Index("ix_chronos_forecasts_symbol_horizon_time", "symbol", "horizon", "forecast_time"),
+    )
+
+    forecast_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("chronos"))
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    interval: Mapped[str] = mapped_column(String(32), nullable=False)
+    horizon: Mapped[int] = mapped_column(Integer, nullable=False)
+    latest_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    median_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    low_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    projected_return: Mapped[float | None] = mapped_column(Float, nullable=True)
+    forecast_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payload_json: Mapped[dict] = mapped_column("payload", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
 

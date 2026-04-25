@@ -470,6 +470,66 @@ def test_bitmart_swap_orders_use_direct_rest_submission(monkeypatch):
     assert order.status == "submitted"
 
 
+def test_bitmart_swap_orders_include_inline_tp_sl_and_leverage(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":42}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": 42}}
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["body"] = data
+        return FakeResponse()
+
+    monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
+
+    order = client.place_order(
+        symbol="BTCUSDT",
+        side="buy",
+        order_type="limit",
+        amount=1,
+        price=65000.0,
+        take_profit_price=68000.0,
+        stop_loss_price=64000.0,
+        leverage=5,
+        margin_mode="isolated",
+    )
+
+    body = json.loads(captured["body"])
+    assert captured["url"].endswith("/contract/private/submit-order")
+    assert body["open_type"] == "isolated"
+    assert body["leverage"] == "5"
+    assert body["preset_take_profit_price"] == "68000.0"
+    assert body["preset_take_profit_price_type"] == 1
+    assert body["preset_stop_loss_price"] == "64000.0"
+    assert body["preset_stop_loss_price_type"] == 1
+    assert order.metadata["leverage"] == "5"
+
+
 def test_normalize_ccxt_order_maps_common_bitmart_fields() -> None:
     normalized = normalize_ccxt_order(
         provider_name="BITMART",
