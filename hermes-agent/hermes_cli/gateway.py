@@ -5,6 +5,8 @@ Handles: hermes gateway [run|start|stop|restart|status|install|uninstall|setup]
 """
 
 import asyncio
+import hashlib
+import json
 import os
 import shutil
 import signal
@@ -378,16 +380,19 @@ SERVICE_DESCRIPTION = "Hermes Agent Gateway - Messaging Platform Integration"
 
 
 def _profile_suffix() -> str:
+    return _profile_suffix_for_home(get_hermes_home())
+
+
+def _profile_suffix_for_home(home: Path | None = None) -> str:
     """Derive a service-name suffix from the current HERMES_HOME.
 
     Returns ``""`` for the default root, the profile name for
     ``<root>/profiles/<name>``, or a short hash for any other path.
     Works correctly in Docker (HERMES_HOME=/opt/data) and standard deployments.
     """
-    import hashlib
     import re
     from hermes_constants import get_default_hermes_root
-    home = get_hermes_home().resolve()
+    home = Path(home or get_hermes_home()).resolve()
     default = get_default_hermes_root().resolve()
     if home == default:
         return ""
@@ -707,9 +712,12 @@ def get_launchd_plist_path() -> Path:
     Default ``~/.hermes`` → ``ai.hermes.gateway.plist`` (backward compatible).
     Profile ``~/.hermes/profiles/coder`` → ``ai.hermes.gateway-coder.plist``.
     """
-    suffix = _profile_suffix()
-    name = f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
-    return _launchd_user_home() / "Library" / "LaunchAgents" / f"{name}.plist"
+    return _launchd_plist_path_for_home(get_hermes_home())
+
+
+def _launchd_plist_path_for_home(home: Path) -> Path:
+    label = _launchd_label_for_home(home)
+    return _launchd_user_home() / "Library" / "LaunchAgents" / f"{label}.plist"
 
 def _detect_venv_dir() -> Path | None:
     """Detect the active virtualenv directory.
@@ -1212,7 +1220,11 @@ def systemd_status(deep: bool = False, system: bool = False):
 
 def get_launchd_label() -> str:
     """Return the launchd service label, scoped per profile."""
-    suffix = _profile_suffix()
+    return _launchd_label_for_home(get_hermes_home())
+
+
+def _launchd_label_for_home(home: Path) -> str:
+    suffix = _profile_suffix_for_home(home)
     return f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
 
 
@@ -1531,6 +1543,423 @@ def launchd_status(deep: bool = False):
             print()
             print("Recent logs:")
             subprocess.run(["tail", "-20", str(log_file)], timeout=10)
+
+
+# =============================================================================
+# Gateway Doctor (Diagnostics)
+# =============================================================================
+
+_IDENTITY_LABELS = {
+    "slack_bot": "Slack bot token",
+    "slack_app": "Slack app token",
+    "telegram": "Telegram bot token",
+}
+
+
+def get_authoritative_gateway_state_path() -> Path:
+    """Return the runtime state file for the current HERMES_HOME/profile."""
+    return get_hermes_home().resolve() / "gateway_state.json"
+
+
+def _read_active_profile_name() -> str:
+    from hermes_constants import get_default_hermes_root
+
+    active_profile_path = get_default_hermes_root().resolve() / "active_profile"
+    try:
+        return active_profile_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _iter_gateway_service_homes() -> list[dict[str, object]]:
+    from hermes_constants import get_default_hermes_root
+
+    default_root = get_default_hermes_root().resolve()
+    rows: list[dict[str, object]] = [{
+        "profile": "default",
+        "home": default_root,
+        "is_default": True,
+    }]
+
+    profiles_root = default_root / "profiles"
+    if profiles_root.exists():
+        for child in sorted(profiles_root.iterdir(), key=lambda path: path.name):
+            if child.is_dir():
+                rows.append({
+                    "profile": child.name,
+                    "home": child.resolve(),
+                    "is_default": False,
+                })
+
+    return rows
+
+
+def _read_json_dict(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    if not raw:
+        return None
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    return payload if isinstance(payload, dict) else None
+
+
+def _pid_exists(pid: object) -> bool:
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return False
+
+    if pid_int <= 0:
+        return False
+
+    try:
+        os.kill(pid_int, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _load_dotenv_values(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    from dotenv import dotenv_values
+
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            values = dotenv_values(path, encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+
+        cleaned: dict[str, str] = {}
+        for key, value in values.items():
+            if not key or not isinstance(key, str):
+                continue
+            cleaned[key] = value.strip() if isinstance(value, str) else ""
+        return cleaned
+
+    return {}
+
+
+def _token_fingerprint(value: str | None) -> str | None:
+    if not value or not value.strip():
+        return None
+    return hashlib.sha256(value.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _launchd_disabled_labels() -> set[str]:
+    if not is_macos():
+        return set()
+
+    try:
+        result = subprocess.run(
+            ["launchctl", "print-disabled", _launchd_domain()],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return set()
+
+    disabled: set[str] = set()
+    for line in result.stdout.splitlines():
+        stripped = line.strip().rstrip(",")
+        if "=> true" not in stripped and "=> disabled" not in stripped:
+            continue
+        label = stripped.split("=>", 1)[0].strip().strip('"')
+        if label.startswith("ai.hermes.gateway"):
+            disabled.add(label)
+    return disabled
+
+
+def _launchd_service_snapshot(label: str) -> dict[str, object]:
+    if not is_macos():
+        return {"loaded": False, "pid": None, "launchd_state": None}
+
+    target = f"{_launchd_domain()}/{label}"
+    try:
+        result = subprocess.run(
+            ["launchctl", "print", target],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return {"loaded": False, "pid": None, "launchd_state": None}
+
+    if result.returncode != 0:
+        return {"loaded": False, "pid": None, "launchd_state": None}
+
+    pid = None
+    launchd_state = None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("pid = "):
+            raw_pid = stripped.split("=", 1)[1].strip()
+            try:
+                pid = int(raw_pid)
+            except ValueError:
+                pid = None
+        elif stripped.startswith("state = "):
+            launchd_state = stripped.split("=", 1)[1].strip()
+
+    return {"loaded": True, "pid": pid, "launchd_state": launchd_state}
+
+
+def _gateway_service_rows(
+    *,
+    current_home: Path | None = None,
+    active_profile: str = "",
+) -> list[dict[str, object]]:
+    current_home = (current_home or get_hermes_home()).resolve()
+    disabled_labels = _launchd_disabled_labels()
+
+    rows: list[dict[str, object]] = []
+    for item in _iter_gateway_service_homes():
+        profile = str(item["profile"])
+        home = Path(item["home"]).resolve()
+        label = _launchd_label_for_home(home)
+        plist_path = _launchd_plist_path_for_home(home)
+        state_path = home / "gateway_state.json"
+        runtime_payload = _read_json_dict(state_path) or {}
+        runtime_pid = runtime_payload.get("pid")
+        runtime_state = runtime_payload.get("gateway_state")
+        runtime_pid_alive = _pid_exists(runtime_pid)
+        stale_state = bool(runtime_payload and runtime_state == "running" and runtime_pid is not None and not runtime_pid_alive)
+        launchd_snapshot = _launchd_service_snapshot(label)
+
+        rows.append({
+            "profile": profile,
+            "home": str(home),
+            "label": label,
+            "plist_path": str(plist_path),
+            "on_disk": plist_path.exists(),
+            "loaded": bool(launchd_snapshot.get("loaded")),
+            "disabled": label in disabled_labels,
+            "launchd_pid": launchd_snapshot.get("pid"),
+            "launchd_state": launchd_snapshot.get("launchd_state"),
+            "state_path": str(state_path),
+            "runtime_state": runtime_state,
+            "runtime_pid": runtime_pid,
+            "runtime_pid_alive": runtime_pid_alive,
+            "stale_state": stale_state,
+            "authoritative": home == current_home,
+            "active_profile": bool(active_profile and profile == active_profile),
+        })
+
+    return rows
+
+
+def _gateway_identity_rows(service_rows: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
+    rows = service_rows or [
+        {"profile": item["profile"], "home": str(item["home"])}
+        for item in _iter_gateway_service_homes()
+    ]
+
+    identity_rows: list[dict[str, object]] = []
+    for row in rows:
+        home = Path(str(row["home"])).resolve()
+        env_path = home / ".env"
+        values = _load_dotenv_values(env_path)
+        identity_rows.append({
+            "profile": str(row["profile"]),
+            "home": str(home),
+            "env_path": str(env_path),
+            "slack_bot": _token_fingerprint(values.get("SLACK_BOT_TOKEN")),
+            "slack_app": _token_fingerprint(values.get("SLACK_APP_TOKEN")),
+            "telegram": _token_fingerprint(values.get("TELEGRAM_BOT_TOKEN")),
+        })
+
+    return identity_rows
+
+
+def _duplicate_identity_groups(identity_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    groups: list[dict[str, object]] = []
+    for resource in _IDENTITY_LABELS:
+        buckets: dict[str, list[str]] = {}
+        for row in identity_rows:
+            fingerprint = row.get(resource)
+            if not fingerprint:
+                continue
+            buckets.setdefault(str(fingerprint), []).append(str(row["profile"]))
+
+        for fingerprint, profiles in sorted(buckets.items(), key=lambda item: item[0]):
+            unique_profiles = sorted(set(profiles))
+            if len(unique_profiles) > 1:
+                groups.append({
+                    "resource": resource,
+                    "fingerprint": fingerprint,
+                    "profiles": unique_profiles,
+                })
+
+    return groups
+
+
+def _gateway_doctor_report() -> dict[str, object]:
+    current_home = get_hermes_home().resolve()
+    active_profile = _read_active_profile_name()
+    service_rows = _gateway_service_rows(current_home=current_home, active_profile=active_profile)
+    identity_rows = _gateway_identity_rows(service_rows)
+    identity_collisions = _duplicate_identity_groups(identity_rows)
+    loaded_profiles = {str(row["profile"]) for row in service_rows if row["loaded"]}
+
+    loaded_identity_conflicts: list[dict[str, object]] = []
+    for item in identity_collisions:
+        loaded = sorted(profile for profile in item["profiles"] if profile in loaded_profiles)
+        if len(loaded) > 1:
+            loaded_identity_conflicts.append({
+                **item,
+                "loaded_profiles": loaded,
+            })
+
+    default_row = next((row for row in service_rows if row["profile"] == "default"), None)
+    authoritative_state_path = get_authoritative_gateway_state_path()
+
+    return {
+        "active_profile": active_profile or None,
+        "hermes_home": str(current_home),
+        "authoritative_state_path": str(authoritative_state_path),
+        "authoritative_state": _read_json_dict(authoritative_state_path) or {},
+        "default_state_path": default_row["state_path"] if default_row else None,
+        "services": service_rows,
+        "identities": identity_rows,
+        "identity_collisions": identity_collisions,
+        "loaded_identity_conflicts": loaded_identity_conflicts,
+    }
+
+
+def gateway_doctor(json_output: bool = False) -> None:
+    """Inspect gateway services, state files, and token ownership across profiles."""
+    report = _gateway_doctor_report()
+
+    if json_output:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+
+    current_profile = next(
+        (str(row["profile"]) for row in report["services"] if row["authoritative"]),
+        "default",
+    )
+
+    print()
+    print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
+    print(color("│              🩺 Hermes Gateway Doctor                   │", Colors.CYAN))
+    print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
+
+    print()
+    print(color("◆ Runtime Authority", Colors.CYAN, Colors.BOLD))
+    active_profile = report["active_profile"] or "(default profile)"
+    print(f"  Active profile: {active_profile}")
+    print(f"  Current HERMES_HOME: {report['hermes_home']}")
+    print(f"  Authoritative gateway_state.json: {report['authoritative_state_path']}")
+    if report["authoritative_state"]:
+        print("  Authoritative runtime payload:")
+        print(json.dumps(report["authoritative_state"], indent=2, sort_keys=True))
+    else:
+        print("  Authoritative runtime payload: (missing)")
+
+    default_state_path = report.get("default_state_path")
+    if default_state_path and default_state_path != report["authoritative_state_path"]:
+        default_row = next(row for row in report["services"] if row["profile"] == "default")
+        default_note = "stale" if default_row["stale_state"] else "non-authoritative"
+        print()
+        print(f"  Default/root gateway_state.json: {default_state_path} ({default_note})")
+
+    print()
+    print(color("◆ Launchd Gateway Services", Colors.CYAN, Colors.BOLD))
+    if not is_macos():
+        print("  launchd diagnostics are only available on macOS.")
+    else:
+        print("  profile             launchd    enabled   launchd-pid runtime        runtime-pid notes")
+        for row in report["services"]:
+            notes: list[str] = []
+            if row["authoritative"]:
+                notes.append("authoritative")
+            elif row["active_profile"]:
+                notes.append("active-profile")
+            if row["stale_state"]:
+                notes.append("stale-state")
+            if not row["on_disk"]:
+                notes.append("no-plist")
+
+            launchd_state = "loaded" if row["loaded"] else "unloaded"
+            enabled_state = "disabled" if row["disabled"] else "enabled"
+            launchd_pid = row["launchd_pid"] if row["launchd_pid"] is not None else "-"
+            runtime_state = row["runtime_state"] or "-"
+            runtime_pid = row["runtime_pid"] if row["runtime_pid"] is not None else "-"
+            note_text = ",".join(notes) if notes else "-"
+            print(
+                f"  {str(row['profile']):<18} {launchd_state:<10} {enabled_state:<9} "
+                f"{str(launchd_pid):<11} {str(runtime_state):<13} {str(runtime_pid):<11} {note_text}"
+            )
+
+    print()
+    print(color("◆ Messaging Identity Ownership (fingerprints only)", Colors.CYAN, Colors.BOLD))
+    print("  profile             slack-bot      slack-app      telegram")
+    for row in report["identities"]:
+        print(
+            f"  {str(row['profile']):<18} {str(row['slack_bot'] or '-'): <14} "
+            f"{str(row['slack_app'] or '-'): <14} {str(row['telegram'] or '-')}"
+        )
+
+    print()
+    print(color("◆ Findings", Colors.CYAN, Colors.BOLD))
+    if report["identity_collisions"]:
+        for item in report["identity_collisions"]:
+            loaded_profiles = item.get("loaded_profiles") or []
+            suffix = f"; loaded: {', '.join(loaded_profiles)}" if loaded_profiles else ""
+            print_warning(
+                f"{_IDENTITY_LABELS[item['resource']]} fingerprint {item['fingerprint']} is shared by {', '.join(item['profiles'])}{suffix}"
+            )
+    else:
+        print_success("No duplicate Slack/Telegram identities were detected across profile env files")
+
+    if report["loaded_identity_conflicts"]:
+        for item in report["loaded_identity_conflicts"]:
+            print_warning(
+                f"Loaded conflict: {', '.join(item['loaded_profiles'])} are using the same {_IDENTITY_LABELS[item['resource']].lower()}"
+            )
+    else:
+        print_success("No duplicate identities are active among the currently loaded gateway services")
+
+    stale_rows = [row for row in report["services"] if row["stale_state"]]
+    if stale_rows:
+        for row in stale_rows:
+            print_warning(
+                f"{row['state_path']} says running, but PID {row['runtime_pid']} is not alive"
+            )
+    else:
+        print_success("No stale profile-scoped gateway_state.json files were detected")
+
+    default_identity = next((row for row in report["identities"] if row["profile"] == "default"), None)
+    current_identity = next((row for row in report["identities"] if row["profile"] == current_profile), None)
+    if current_profile != "default" and default_identity and current_identity:
+        overlaps = [
+            _IDENTITY_LABELS[key]
+            for key in _IDENTITY_LABELS
+            if default_identity.get(key) and default_identity.get(key) == current_identity.get(key)
+        ]
+        if overlaps:
+            default_label = _launchd_label_for_home(Path(default_identity["home"]))
+            print_warning(
+                f"Default/root service {default_label} shares {', '.join(overlaps)} with the current profile; keep it disabled"
+            )
+
+    print_info("Use this command after any launchctl, profile, or .env change: hermes gateway doctor")
+    print()
 
 
 # =============================================================================
@@ -2769,6 +3198,10 @@ def gateway_command(args):
 
     if subcmd == "setup":
         gateway_setup()
+        return
+
+    if subcmd == "doctor":
+        gateway_doctor(json_output=getattr(args, "json", False))
         return
 
     # Service management commands

@@ -3,12 +3,14 @@ from types import SimpleNamespace
 
 import backend.tools.get_exchange_balances as balances_module
 import backend.tools.place_order as place_order_module
+import backend.tools.preview_execution_order as preview_order_module
 import backend.integrations.execution.multi_venue as multi_venue_module
 from backend.integrations.execution.normalization import execution_order_payload, normalize_ccxt_order
 from backend.integrations.execution.multi_venue import VenueExecutionClient
 from backend.models import ExecutionOrder
 from backend.tools.get_exchange_balances import get_exchange_balances
 from backend.tools.place_order import place_order
+from backend.tools.preview_execution_order import preview_execution_order
 from backend.trading.models import ExecutionOutcome, ExecutionRequest, ExecutionResult
 from backend.integrations.execution.mode import (
     LIVE_TRADING_ACK_PHRASE,
@@ -535,17 +537,366 @@ def test_bitmart_swap_orders_include_inline_tp_sl_and_leverage(monkeypatch):
     assert body["preset_stop_loss_price_type"] == 1
 
     assert tp_url.endswith("/contract/private/submit-tp-sl-order")
-    assert tp_body["plan_type"] == "take_profit"
+    assert tp_body["type"] == "take_profit"
+    assert tp_body["category"] == "market"
+    assert tp_body["plan_category"] == 2
+    assert tp_body["price_type"] == 1
     assert "client_order_id" not in tp_body
     assert tp_body["trigger_price"] == "68000.0"
+    assert tp_body["executive_price"] == "68000.0"
 
-    assert sl_url.endswith("/contract/private/submit-plan-order")
-    assert sl_body["plan_type"] == "stop_loss"
+    assert sl_url.endswith("/contract/private/submit-tp-sl-order")
+    assert sl_body["type"] == "stop_loss"
+    assert sl_body["category"] == "market"
+    assert sl_body["plan_category"] == 2
+    assert sl_body["price_type"] == 1
     assert "client_order_id" not in sl_body
     assert sl_body["trigger_price"] == "64000.0"
+    assert sl_body["executive_price"] == "64000.0"
     assert order.metadata["leverage"] == "5"
+    assert order.metadata["bitmart_bracket_status"] == "submitted"
     assert order.metadata["bitmart_bracket_orders"]["take_profit"]["status"] == "submitted"
     assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["status"] == "submitted"
+
+
+def test_bitmart_swap_orders_raise_risk_alert_when_take_profit_follow_up_is_rejected(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeEntryResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":42}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": 42}}
+
+    class FakeTriggerRejectResponse:
+        status_code = 400
+        text = '{"code":40035,"message":"Invalid trigger price","trace":"trace-tp"}'
+
+        def json(self):
+            return {"code": 40035, "message": "Invalid trigger price", "trace": "trace-tp"}
+
+    class FakeSuccessResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":"sl-1"}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": "sl-1"}}
+
+    posts = [FakeEntryResponse(), FakeTriggerRejectResponse(), FakeSuccessResponse()]
+    alerts: list[dict[str, object]] = []
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module, "notify_bracket_attachment_failed", lambda **kwargs: alerts.append(kwargs))
+    monkeypatch.setattr(multi_venue_module.requests, "post", lambda *args, **kwargs: posts.pop(0))
+
+    order = client.place_order(
+        symbol="BTCUSDT",
+        side="buy",
+        order_type="limit",
+        amount=1,
+        price=65000.0,
+        take_profit_price=68000.0,
+        stop_loss_price=64000.0,
+    )
+
+    assert order.order_id == "42"
+    assert order.metadata["bitmart_bracket_status"] == "partial_failure"
+    assert order.metadata["bitmart_bracket_orders"]["take_profit"]["status"] == "failed"
+    assert order.metadata["bitmart_bracket_orders"]["take_profit"]["failure_category"] == "exchange_validation_failed"
+    assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["status"] == "submitted"
+    assert alerts and alerts[0]["symbol"] == "BTCUSDT"
+    assert "take_profit" in alerts[0]["failures"]
+
+
+def test_bitmart_swap_orders_raise_risk_alert_when_stop_loss_follow_up_has_network_failure(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeEntryResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":99}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": 99}}
+
+    class FakeSuccessResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":"tp-1"}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": "tp-1"}}
+
+    responses = [FakeEntryResponse(), FakeSuccessResponse()]
+    alerts: list[dict[str, object]] = []
+
+    def fake_post(*args, **kwargs):
+        if responses:
+            return responses.pop(0)
+        raise RuntimeError("connection reset by peer")
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module, "notify_bracket_attachment_failed", lambda **kwargs: alerts.append(kwargs))
+    monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
+
+    order = client.place_order(
+        symbol="BTCUSDT",
+        side="buy",
+        order_type="limit",
+        amount=1,
+        price=65000.0,
+        take_profit_price=68000.0,
+        stop_loss_price=64000.0,
+    )
+
+    assert order.order_id == "99"
+    assert order.metadata["bitmart_bracket_status"] == "partial_failure"
+    assert order.metadata["bitmart_bracket_orders"]["take_profit"]["status"] == "submitted"
+    assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["status"] == "failed"
+    assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["failure_category"] == "network_or_api_failure"
+    assert alerts and "stop_loss" in alerts[0]["failures"]
+
+
+def test_bitmart_swap_orders_raise_risk_alert_when_bracket_auth_fails(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeEntryResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{"order_id":77}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {"order_id": 77}}
+
+    class FakeAuthFailureResponse:
+        status_code = 200
+        text = '{"code":30005,"message":"Invalid signature","trace":"trace-auth"}'
+
+        def json(self):
+            return {"code": 30005, "message": "Invalid signature", "trace": "trace-auth"}
+
+    posts = [FakeEntryResponse(), FakeAuthFailureResponse(), FakeAuthFailureResponse()]
+    alerts: list[dict[str, object]] = []
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module, "notify_bracket_attachment_failed", lambda **kwargs: alerts.append(kwargs))
+    monkeypatch.setattr(multi_venue_module.requests, "post", lambda *args, **kwargs: posts.pop(0))
+
+    order = client.place_order(
+        symbol="BTCUSDT",
+        side="buy",
+        order_type="limit",
+        amount=1,
+        price=65000.0,
+        take_profit_price=68000.0,
+        stop_loss_price=64000.0,
+    )
+
+    assert order.order_id == "77"
+    assert order.metadata["bitmart_bracket_status"] == "partial_failure"
+    assert order.metadata["bitmart_bracket_orders"]["take_profit"]["failure_category"] == "auth_failed"
+    assert order.metadata["bitmart_bracket_orders"]["stop_loss"]["failure_category"] == "auth_failed"
+    assert alerts and set(alerts[0]["failures"].keys()) == {"take_profit", "stop_loss"}
+
+
+def test_place_order_surfaces_bitmart_bracket_warning_metadata(monkeypatch):
+    class FakeVenueClient:
+        exchange_id = "bitmart"
+        account_type = "swap"
+        provider = SimpleNamespace(name="BITMART")
+        credential_env_names = ["BITMART_API_KEY", "BITMART_SECRET", "BITMART_MEMO"]
+        configured = True
+
+        def __init__(self, venue):
+            assert venue == "bitmart"
+
+        def get_execution_status(self, *, order_id=None, symbol=None):
+            return SimpleNamespace(
+                readiness_status="api_execution_ready",
+                readiness={"status": "api_execution_ready", "signed_writes_verified": True},
+                support_matrix={"readiness_state": "api_execution_ready", "blockers": []},
+            )
+
+        def place_order(self, **kwargs):
+            return ExecutionOrder(
+                order_id="ord-bracket-warning",
+                exchange="BITMART",
+                symbol=kwargs["symbol"],
+                side=kwargs["side"],
+                order_type=kwargs["order_type"],
+                amount=kwargs["amount"],
+                status="submitted",
+                metadata={
+                    "bitmart_bracket_status": "partial_failure",
+                    "bitmart_bracket_orders": {
+                        "take_profit": {
+                            "status": "failed",
+                            "trigger_price": "68000.0",
+                            "failure_category": "exchange_validation_failed",
+                            "error": "Invalid trigger price",
+                        }
+                    },
+                },
+            )
+
+    monkeypatch.setattr(place_order_module, "select_order_venue", lambda **kwargs: {"selected_venue": "bitmart", "warnings": []})
+    monkeypatch.setattr(place_order_module, "VenueExecutionClient", FakeVenueClient)
+    monkeypatch.setattr(
+        place_order_module,
+        "evaluate_execution_safety",
+        lambda approval_id=None: SimpleNamespace(
+            execution_mode="live",
+            blockers=[],
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            approval_required=False,
+        ),
+    )
+
+    payload = place_order({"symbol": "BTCUSDT", "side": "buy", "order_type": "market", "amount": 1, "venue": "bitmart"})
+
+    assert payload["meta"]["ok"] is True
+    assert payload["data"]["bracket_status"] == "partial_failure"
+    assert payload["data"]["bracket_warnings"]
+    assert "BitMart take profit bracket follow-up failed" in payload["meta"]["warnings"][0]
+
+
+def test_preview_execution_order_returns_redacted_bitmart_bracket_payloads(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_public_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(preview_order_module, "VenueExecutionClient", lambda venue: client)
+
+    payload = preview_execution_order(
+        {
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "amount": 1,
+            "price": 65000.0,
+            "take_profit_price": 68000.0,
+            "stop_loss_price": 64000.0,
+            "venue": "bitmart",
+        }
+    )
+
+    assert payload["meta"]["ok"] is True
+    preview = payload["data"]["preview"]
+    assert preview["mode"] == "dry_run"
+    assert preview["entry"]["path"] == "/contract/private/submit-order"
+    assert preview["entry"]["headers"]["X-BM-KEY"] == "***"
+    assert preview["entry"]["headers"]["X-BM-SIGN"] == "***"
+    assert preview["follow_up_count"] == 2
+    assert {item["label"] for item in preview["follow_ups"]} == {"take_profit", "stop_loss"}
+    assert all(item["path"] == "/contract/private/submit-tp-sl-order" for item in preview["follow_ups"])
+
+
+def test_preview_execution_order_generates_bitmart_safe_child_client_order_ids(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_public_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(preview_order_module, "VenueExecutionClient", lambda venue: client)
+
+    payload = preview_execution_order(
+        {
+            "symbol": "BTCUSDT",
+            "side": "buy",
+            "order_type": "limit",
+            "amount": 1,
+            "price": 65000.0,
+            "take_profit_price": 68000.0,
+            "stop_loss_price": 64000.0,
+            "venue": "bitmart",
+            "client_order_id": "A" * 32,
+        }
+    )
+
+    follow_ups = {item["label"]: item for item in payload["data"]["preview"]["follow_ups"]}
+    tp_client_order_id = follow_ups["take_profit"]["body"]["client_order_id"]
+    sl_client_order_id = follow_ups["stop_loss"]["body"]["client_order_id"]
+
+    assert len(tp_client_order_id) <= 32
+    assert len(sl_client_order_id) <= 32
+    assert tp_client_order_id.isalnum()
+    assert sl_client_order_id.isalnum()
 
 
 def test_normalize_ccxt_order_maps_common_bitmart_fields() -> None:

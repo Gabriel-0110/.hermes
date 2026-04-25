@@ -221,7 +221,7 @@ TOOLSETS = {
             "get_onchain_wallet_data", "get_wallet_transactions", "get_token_activity",
             "get_smart_money_flows", "get_labeled_wallet_activity", "get_onchain_signal_summary",
             "get_portfolio_state", "get_exchange_balances", "get_open_orders", "get_order_history", "get_trade_history",
-            "list_trade_candidates", "get_risk_approval", "place_order", "cancel_order",
+            "list_trade_candidates", "get_risk_approval", "place_order", "preview_execution_order", "cancel_order",
             "send_notification", "send_trade_alert", "send_risk_alert", "send_daily_summary", "send_execution_update", "get_execution_status",
             "get_recent_tradingview_alerts", "get_tradingview_alert_by_symbol",
             "get_pending_signal_events", "get_tradingview_alert_context",
@@ -236,7 +236,7 @@ TOOLSETS = {
     "trading-execution": {
         "description": "Minimal toolset for the execution_agent — fire approved orders only",
         "tools": [
-            "get_execution_status", "place_order", "cancel_order", "get_portfolio_state",
+            "get_execution_status", "place_order", "preview_execution_order", "cancel_order", "get_portfolio_state",
             "get_open_orders", "send_execution_update",
         ],
         "includes": []

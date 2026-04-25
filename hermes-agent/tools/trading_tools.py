@@ -32,6 +32,7 @@ from backend.tools.get_onchain_signal_summary import get_onchain_signal_summary
 from backend.tools.get_onchain_wallet_data import get_onchain_wallet_data
 from backend.tools.get_portfolio_state import get_portfolio_state
 from backend.tools.get_portfolio_valuation import get_portfolio_valuation
+from backend.tools.preview_execution_order import preview_execution_order
 from backend.tools.get_recent_tradingview_alerts import get_recent_tradingview_alerts
 from backend.tools.get_risk_approval import get_risk_approval
 from backend.tools.get_smart_money_flows import get_smart_money_flows
@@ -388,6 +389,34 @@ _TRADING_TOOLS = {
             "required": ["symbol", "side", "amount"],
         },
         "handler": place_order,
+    },
+    "preview_execution_order": {
+        "description": "Preview the backend execution payloads for an order without sending anything to the exchange. Useful for BitMart futures bracket dry-runs and payload verification.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "side": {"type": "string", "enum": ["buy", "sell"]},
+                "order_type": {"type": "string", "enum": ["market", "limit", "stop", "stop_limit"]},
+                "amount": {"type": "number", "exclusiveMinimum": 0},
+                "price": {"type": "number", "exclusiveMinimum": 0},
+                "stop_loss_price": {"type": "number", "exclusiveMinimum": 0},
+                "take_profit_price": {"type": "number", "exclusiveMinimum": 0},
+                "leverage": {"type": "number", "exclusiveMinimum": 0},
+                "margin_mode": {"type": "string", "enum": ["cross", "isolated"]},
+                "client_order_id": {"type": "string"},
+                "time_in_force": {"type": "string", "enum": ["GTC", "IOC", "FOK"]},
+                "post_only": {"type": "boolean"},
+                "reduce_only": {"type": "boolean"},
+                "close_only": {"type": "boolean"},
+                "position_side": {"type": "string", "enum": ["long", "short"]},
+                "venue": {"type": "string"},
+                "venues": {"type": "array", "items": {"type": "string"}},
+                "approval_id": {"type": "string"},
+            },
+            "required": ["symbol", "side", "amount"],
+        },
+        "handler": preview_execution_order,
     },
     "cancel_order": {
         "description": "Cancel a known exchange order id on a selected execution venue.",

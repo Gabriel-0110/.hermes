@@ -83,6 +83,7 @@ Use repo-local commands only when you are debugging or iterating on one layer:
 For those deeper workflows, see:
 
 - `hermes/docs/local-runtime-flow.md`
+- `docs/workspace/GATEWAY_RUNTIME.md`
 - `hermes/README.md`
 - `hermes-agent/README.md`
 

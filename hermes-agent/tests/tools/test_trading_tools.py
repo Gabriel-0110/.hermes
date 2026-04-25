@@ -95,6 +95,17 @@ def test_execution_tools_only_exposed_to_expected_toolsets():
     assert "send_notification" not in strategy_names
 
 
+def test_execution_preview_tool_is_exposed_to_execution_toolsets():
+    trading_defs = get_tool_definitions(enabled_toolsets=["trading"], quiet_mode=True)
+    execution_defs = get_tool_definitions(enabled_toolsets=["trading-execution"], quiet_mode=True)
+
+    trading_names = {tool["function"]["name"] for tool in trading_defs}
+    execution_names = {tool["function"]["name"] for tool in execution_defs}
+
+    assert "preview_execution_order" in trading_names
+    assert "preview_execution_order" in execution_names
+
+
 def test_shared_resource_catalog_reports_all_core_resources_live():
     from backend.shared_resources import get_shared_resource_audit, initialize_shared_resource_catalog
 

@@ -51,6 +51,27 @@ def _is_bitmart_direct_futures_client(client: object) -> bool:
     )
 
 
+def _bitmart_bracket_warning_messages(order) -> list[str]:
+    metadata = getattr(order, "metadata", {}) or {}
+    bracket_orders = metadata.get("bitmart_bracket_orders")
+    if not isinstance(bracket_orders, dict):
+        return []
+
+    warnings: list[str] = []
+    for label, details in bracket_orders.items():
+        if not isinstance(details, dict) or details.get("status") != "failed":
+            continue
+        warning = f"BitMart {label.replace('_', ' ')} bracket follow-up failed"
+        if details.get("trigger_price"):
+            warning += f" @ {details['trigger_price']}"
+        if details.get("failure_category"):
+            warning += f" [{details['failure_category']}]"
+        if details.get("error"):
+            warning += f": {details['error']}"
+        warnings.append(warning)
+    return warnings
+
+
 def place_order(payload: dict | None = None) -> dict:
     def _run() -> dict:
         args = validate(PlaceOrderInput, payload or {})
@@ -241,9 +262,14 @@ def place_order(payload: dict | None = None) -> dict:
                 payload={"exchange_order": execution_order_payload(order, request_id=request.request_id, idempotency_key=request.idempotency_key, routing=routing)},
             ),
         )
+        bracket_warnings = _bitmart_bracket_warning_messages(order)
         data["routing"] = routing
         data["execution_request"] = outcome.request.model_dump(mode="json")
         data["execution_result"] = outcome.result.model_dump(mode="json")
-        return envelope("place_order", [provider_ok(client.provider.name)], data, warnings=routing.get("warnings") or [])
+        if bracket_warnings:
+            data["bracket_status"] = (order.metadata or {}).get("bitmart_bracket_status") or "partial_failure"
+            data["bracket_warnings"] = bracket_warnings
+        warnings = list(routing.get("warnings") or []) + bracket_warnings
+        return envelope("place_order", [provider_ok(client.provider.name)], data, warnings=warnings)
 
     return run_tool("place_order", _run)

@@ -295,6 +295,55 @@ def notify_live_execution_failed(
     )
 
 
+def notify_bracket_attachment_failed(
+    *,
+    symbol: str,
+    exchange: str,
+    entry_order_id: str | None,
+    failures: dict[str, dict[str, Any]],
+    parent_client_order_id: str | None = None,
+) -> None:
+    """Emit when best-effort post-entry TP/SL placement fails.
+
+    The entry order may already be live, so this is escalated as a risk alert even
+    though the parent placement succeeded.
+    """
+
+    failure_summaries: list[str] = []
+    for label, details in failures.items():
+        trigger = details.get("trigger_price")
+        category = details.get("failure_category")
+        error = details.get("error")
+        summary = label.replace("_", " ")
+        if trigger:
+            summary += f" @ {trigger}"
+        if category:
+            summary += f" [{category}]"
+        if error:
+            summary += f": {error}"
+        failure_summaries.append(summary)
+
+    entry_ref = entry_order_id or "unknown"
+    parent_ref = f" client_order_id={parent_client_order_id}." if parent_client_order_id else ""
+    _emit(
+        title=f"Bracket follow-up FAILED — {symbol}",
+        message=(
+            f"Entry order {entry_ref} on {exchange} was submitted, but follow-up bracket placement failed: "
+            f"{' ; '.join(failure_summaries)}.{parent_ref} Immediate operator review is recommended."
+        ),
+        severity="high",
+        notification_type="bracket_attachment_failed",
+        metadata={
+            "symbol": symbol,
+            "exchange": exchange,
+            "entry_order_id": entry_order_id or "",
+            "parent_client_order_id": parent_client_order_id or "",
+            "failed_legs": ", ".join(sorted(failures.keys())),
+            "failure_count": len(failures),
+        },
+    )
+
+
 # --------------------------------------------------------------------------
 # Kill switch
 # --------------------------------------------------------------------------

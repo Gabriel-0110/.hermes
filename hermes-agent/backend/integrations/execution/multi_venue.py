@@ -100,6 +100,60 @@ def _sanitize_execution_telemetry(value: Any) -> Any:
     return value
 
 
+def notify_bracket_attachment_failed(
+    *,
+    symbol: str,
+    exchange: str,
+    entry_order_id: str | None,
+    failures: dict[str, dict[str, Any]],
+    parent_client_order_id: str | None = None,
+) -> None:
+    """Emit a fire-and-forget risk notification for bracket follow-up failures."""
+
+    failure_summaries: list[str] = []
+    for label, details in failures.items():
+        trigger = details.get("trigger_price")
+        category = details.get("failure_category")
+        error = details.get("error")
+        summary = label.replace("_", " ")
+        if trigger:
+            summary += f" @ {trigger}"
+        if category:
+            summary += f" [{category}]"
+        if error:
+            summary += f": {error}"
+        failure_summaries.append(summary)
+
+    try:
+        from backend.tools.send_notification import SendNotificationInput, _dispatch_notification
+
+        raw_channels = os.getenv("HERMES_NOTIFY_CHANNELS", "log")
+        channels = [item.strip().lower() for item in raw_channels.split(",") if item.strip()] or ["log"]
+        args = SendNotificationInput(
+            channels=channels,
+            title=f"Bracket follow-up FAILED — {symbol}",
+            message=(
+                f"Entry order {entry_order_id or 'unknown'} on {exchange} was submitted, but follow-up bracket placement failed: "
+                f"{' ; '.join(failure_summaries)}."
+                + (f" client_order_id={parent_client_order_id}." if parent_client_order_id else "")
+                + " Immediate operator review is recommended."
+            ),
+            severity="high",
+            notification_type="bracket_attachment_failed",
+            metadata={
+                "symbol": symbol,
+                "exchange": exchange,
+                "entry_order_id": entry_order_id or "",
+                "parent_client_order_id": parent_client_order_id or "",
+                "failed_legs": ", ".join(sorted(failures.keys())),
+                "failure_count": len(failures),
+            },
+        )
+        _dispatch_notification(args)
+    except Exception as exc:  # pragma: no cover - alerts must never break execution
+        logger.debug("Failed to emit bracket attachment alert for %s: %s", symbol, exc)
+
+
 def _classify_write_failure(value: Any) -> str:
     parts = [str(value or "")]
     cause = getattr(value, "__cause__", None)
@@ -118,6 +172,51 @@ def _classify_write_failure(value: Any) -> str:
     return "unknown_write_failure"
 
 
+def _classify_bracket_failure(value: Any) -> str:
+    base = _classify_write_failure(value)
+    if base != "unknown_write_failure":
+        return base
+
+    parts = [str(value or "")]
+    cause = getattr(value, "__cause__", None)
+    context = getattr(value, "__context__", None)
+    if cause is not None:
+        parts.append(str(cause))
+    if context is not None:
+        parts.append(str(context))
+    text = " ".join(parts).lower()
+    if any(
+        term in text
+        for term in (
+            "request failed before a response was received",
+            "connection reset",
+            "connection refused",
+            "timed out",
+            "temporary failure in name resolution",
+            "network is unreachable",
+            "remote disconnected",
+        )
+    ):
+        return "network_or_api_failure"
+    if any(
+        term in text
+        for term in (
+            "trigger price",
+            "invalid range",
+            "invalid trigger",
+            "invalid price",
+            "price_type",
+            "price way",
+            "plan category",
+            "execution price",
+            "executive_price",
+            "validation",
+        )
+    ):
+        return "exchange_validation_failed"
+    return "unknown_write_failure"
+
+
 def _format_bitmart_numeric(value: float | int | str | None) -> str | None:
     if value in (None, "", "-"):
         return None
@@ -128,6 +227,34 @@ def _format_bitmart_numeric(value: float | int | str | None) -> str | None:
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
+
+
+def _validate_bitmart_client_order_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if len(normalized) > 32 or not normalized.isalnum():
+        raise IntegrationError(
+            "BitMart futures client_order_id must be alphanumeric and at most 32 characters."
+        )
+    return normalized
+
+
+def _build_bitmart_child_client_order_id(base: str | None, suffix: str) -> str | None:
+    normalized = _validate_bitmart_client_order_id(base)
+    if not normalized:
+        return None
+
+    suffix_text = "".join(ch for ch in suffix.upper() if ch.isalnum()) or "CHILD"
+    candidate = f"{normalized}{suffix_text}"
+    if len(candidate) <= 32:
+        return candidate
+
+    digest = hashlib.sha1(candidate.encode("utf-8")).hexdigest()[:6].upper()
+    keep = max(0, 32 - len(suffix_text) - len(digest))
+    return f"{normalized[:keep]}{digest}{suffix_text}"[:32]
 
 _EXECUTION_TOOLS = [
     "get_exchange_balances",
@@ -698,6 +825,26 @@ class VenueExecutionClient:
             },
         }
 
+    def _redact_bitmart_signed_request_preview(
+        self,
+        *,
+        path: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        signed = self._build_bitmart_signed_futures_request(body, path=path)
+        safe_headers = dict(signed["headers"])
+        if safe_headers.get("X-BM-KEY"):
+            safe_headers["X-BM-KEY"] = "***"
+        if safe_headers.get("X-BM-SIGN"):
+            safe_headers["X-BM-SIGN"] = "***"
+        return {
+            "method": "POST",
+            "url": signed["url"],
+            "path": path,
+            "headers": safe_headers,
+            "body": body,
+        }
+
     def _post_bitmart_signed_futures_request(
         self,
         *,
@@ -711,18 +858,22 @@ class VenueExecutionClient:
         except Exception as exc:
             raise IntegrationError(f"BITMART {context} request failed before a response was received: {exc}") from exc
 
-        if response.status_code >= 400:
-            body_preview = response.text[:300]
-            raise IntegrationError(
-                f"BITMART {context} HTTP {response.status_code}: {body_preview or 'empty response body'}"
-            )
-
         try:
             payload = response.json()
         except Exception as exc:
+            if response.status_code >= 400:
+                raise IntegrationError(
+                    f"BITMART {context} HTTP {response.status_code}: {response.text[:300] or 'empty response body'}"
+                ) from exc
             raise IntegrationError(
                 f"BITMART {context} returned non-JSON content: {response.text[:300]}"
             ) from exc
+
+        if response.status_code >= 400:
+            raise IntegrationError(
+                f"BITMART {context} rejected the request: http_status={response.status_code} "
+                f"code={payload.get('code')} message={payload.get('message')!r} trace={payload.get('trace')!r}"
+            )
 
         if payload.get("code") != 1000:
             raise IntegrationError(
@@ -732,6 +883,136 @@ class VenueExecutionClient:
 
         return payload
 
+    def _prepare_bitmart_swap_order_request(
+        self,
+        *,
+        exchange: Any,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: Literal["cross", "isolated"] | None = None,
+        client_order_id: str | None = None,
+        time_in_force: str | None = None,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
+    ) -> dict[str, Any]:
+        market = exchange.market(symbol)
+        market_symbol = market.get("id") or symbol
+        order_type_normalized = (order_type or "").strip().lower()
+        if order_type_normalized not in {"market", "limit"}:
+            raise IntegrationError(f"Unsupported direct BitMart futures order type: {order_type!r}")
+
+        size_precise = exchange.amount_to_precision(symbol, amount)
+        size = int(float(size_precise))
+        if size <= 0:
+            raise IntegrationError(f"BitMart futures order size resolved to {size}; a positive contract size is required.")
+
+        request: dict[str, Any] = {
+            "symbol": market_symbol,
+            "type": order_type_normalized,
+            "side": self._bitmart_swap_side_code(side=side, reduce_only=reduce_only, position_side=position_side),
+            "size": size,
+        }
+        mode = self._bitmart_futures_order_mode(
+            order_type=order_type_normalized,
+            time_in_force=time_in_force,
+            post_only=post_only,
+        )
+        if mode is not None:
+            request["mode"] = mode
+        if order_type_normalized == "limit":
+            if price is None:
+                raise IntegrationError("BitMart futures limit orders require a price.")
+            request["price"] = exchange.price_to_precision(symbol, price)
+        bitmart_client_order_id = _validate_bitmart_client_order_id(client_order_id)
+        if bitmart_client_order_id:
+            request["client_order_id"] = bitmart_client_order_id
+        if not reduce_only:
+            request["open_type"] = (margin_mode or os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross")).strip().lower() or "cross"
+            leverage_value = _format_bitmart_numeric(leverage)
+            if leverage_value is not None:
+                request["leverage"] = leverage_value
+            if take_profit_price is not None:
+                request["preset_take_profit_price"] = exchange.price_to_precision(symbol, take_profit_price)
+                request["preset_take_profit_price_type"] = 1
+            if stop_loss_price is not None:
+                request["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
+                request["preset_stop_loss_price_type"] = 1
+
+        return {
+            "market_symbol": market_symbol,
+            "order_type": order_type_normalized,
+            "size": size,
+            "request": request,
+        }
+
+    def _build_bitmart_bracket_request_specs(
+        self,
+        *,
+        symbol: str,
+        market_symbol: str,
+        size: int,
+        entry_side: str,
+        take_profit_price: float | None,
+        stop_loss_price: float | None,
+        client_order_id: str | None,
+        position_side: str | None,
+        exchange: Any,
+    ) -> dict[str, dict[str, Any]]:
+        request_specs: dict[str, dict[str, Any]] = {}
+        exit_side = "sell" if str(entry_side).lower() == "buy" else "buy"
+        reduce_side = self._bitmart_swap_side_code(side=exit_side, reduce_only=True, position_side=position_side)
+
+        if take_profit_price is not None:
+            tp_body = {
+                "symbol": market_symbol,
+                "side": reduce_side,
+                "type": "take_profit",
+                "size": size,
+                "trigger_price": exchange.price_to_precision(symbol, take_profit_price),
+                "executive_price": exchange.price_to_precision(symbol, take_profit_price),
+                "price_type": 1,
+                "plan_category": 2,
+                "category": "market",
+            }
+            tp_client_order_id = _build_bitmart_child_client_order_id(client_order_id, "TP")
+            if tp_client_order_id:
+                tp_body["client_order_id"] = tp_client_order_id
+            request_specs["take_profit"] = {
+                "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                "context": "submit-tp-sl-order",
+                "body": tp_body,
+            }
+
+        if stop_loss_price is not None:
+            sl_body = {
+                "symbol": market_symbol,
+                "side": reduce_side,
+                "type": "stop_loss",
+                "size": size,
+                "trigger_price": exchange.price_to_precision(symbol, stop_loss_price),
+                "executive_price": exchange.price_to_precision(symbol, stop_loss_price),
+                "price_type": 1,
+                "plan_category": 2,
+                "category": "market",
+            }
+            sl_client_order_id = _build_bitmart_child_client_order_id(client_order_id, "SL")
+            if sl_client_order_id:
+                sl_body["client_order_id"] = sl_client_order_id
+            request_specs["stop_loss"] = {
+                "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                "context": "submit-tp-sl-order",
+                "body": sl_body,
+            }
+
+        return request_specs
+
     def _attach_bitmart_risk_orders(
         self,
         *,
@@ -739,7 +1020,6 @@ class VenueExecutionClient:
         market_symbol: str,
         size: int,
         entry_side: str,
-        order_type: str,
         take_profit_price: float | None,
         stop_loss_price: float | None,
         client_order_id: str | None,
@@ -748,77 +1028,88 @@ class VenueExecutionClient:
         exchange: Any,
     ) -> dict[str, Any]:
         attachments: dict[str, Any] = {}
-        exit_side = "sell" if str(entry_side).lower() == "buy" else "buy"
-        reduce_side = self._bitmart_swap_side_code(side=exit_side, reduce_only=True, position_side=position_side)
+        failures: dict[str, dict[str, Any]] = {}
+        request_specs = self._build_bitmart_bracket_request_specs(
+            symbol=symbol,
+            market_symbol=market_symbol,
+            size=size,
+            entry_side=entry_side,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            client_order_id=client_order_id,
+            position_side=position_side,
+            exchange=exchange,
+        )
 
-        if take_profit_price is not None:
-            tp_body = {
-                "symbol": market_symbol,
-                "side": reduce_side,
-                "size": size,
-                "trigger_price": exchange.price_to_precision(symbol, take_profit_price),
-                "execute_price": exchange.price_to_precision(symbol, take_profit_price),
-                "plan_type": "take_profit",
-            }
-            if entry_order_id:
-                tp_body["order_id"] = entry_order_id
-            if client_order_id:
-                tp_body["client_order_id"] = f"{client_order_id}-tp"
+        for label, spec in request_specs.items():
+            body = spec["body"]
             try:
                 payload = self._post_bitmart_signed_futures_request(
-                    path=_BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
-                    body=tp_body,
-                    context="submit-tp-sl-order",
+                    path=spec["path"],
+                    body=body,
+                    context=spec["context"],
                 )
-                attachments["take_profit"] = {
+                attachments[label] = {
                     "status": "submitted",
-                    "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                    "path": spec["path"],
                     "order_id": str((payload.get("data") or {}).get("order_id") or (payload.get("data") or {}).get("orderId") or ""),
-                    "trigger_price": tp_body["trigger_price"],
+                    "trigger_price": body["trigger_price"],
+                    "type": body["type"],
+                    "category": body["category"],
+                    "price_type": body["price_type"],
+                    "plan_category": body["plan_category"],
+                    "client_order_id": body.get("client_order_id"),
+                    "parent_order_id": entry_order_id,
+                    "parent_client_order_id": client_order_id,
                 }
             except Exception as exc:
-                logger.warning("BITMART submit-tp-sl-order failed for %s: %s", symbol, exc)
-                attachments["take_profit"] = {
+                failure_category = _classify_bracket_failure(exc)
+                logger.warning("BITMART %s failed for %s: %s", spec["context"], symbol, exc)
+                attachments[label] = {
                     "status": "failed",
-                    "path": _BITMART_DIRECT_FUTURES_TPSL_ORDER_PATH,
+                    "path": spec["path"],
                     "error": str(exc),
-                    "trigger_price": tp_body["trigger_price"],
+                    "failure_category": failure_category,
+                    "trigger_price": body["trigger_price"],
+                    "type": body["type"],
+                    "category": body["category"],
+                    "price_type": body["price_type"],
+                    "plan_category": body["plan_category"],
+                    "client_order_id": body.get("client_order_id"),
+                    "parent_order_id": entry_order_id,
+                    "parent_client_order_id": client_order_id,
                 }
+                failures[label] = attachments[label]
 
-        if stop_loss_price is not None:
-            sl_body = {
-                "symbol": market_symbol,
-                "type": "market" if order_type == "market" else "limit",
-                "side": reduce_side,
-                "size": size,
-                "trigger_price": exchange.price_to_precision(symbol, stop_loss_price),
-                "execute_price": exchange.price_to_precision(symbol, stop_loss_price),
-                "plan_type": "stop_loss",
-            }
-            if entry_order_id:
-                sl_body["order_id"] = entry_order_id
-            if client_order_id:
-                sl_body["client_order_id"] = f"{client_order_id}-sl"
-            try:
-                payload = self._post_bitmart_signed_futures_request(
-                    path=_BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
-                    body=sl_body,
-                    context="submit-plan-order",
-                )
-                attachments["stop_loss"] = {
-                    "status": "submitted",
-                    "path": _BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
-                    "order_id": str((payload.get("data") or {}).get("order_id") or (payload.get("data") or {}).get("orderId") or ""),
-                    "trigger_price": sl_body["trigger_price"],
-                }
-            except Exception as exc:
-                logger.warning("BITMART submit-plan-order failed for %s: %s", symbol, exc)
-                attachments["stop_loss"] = {
-                    "status": "failed",
-                    "path": _BITMART_DIRECT_FUTURES_PLAN_ORDER_PATH,
-                    "error": str(exc),
-                    "trigger_price": sl_body["trigger_price"],
-                }
+        if failures:
+            notify_bracket_attachment_failed(
+                symbol=symbol,
+                exchange=self.provider.name,
+                entry_order_id=entry_order_id,
+                failures=failures,
+                parent_client_order_id=client_order_id,
+            )
+            self._record_execution_telemetry(
+                event_type="order_bracket_attachment_failed",
+                status="warning",
+                symbol=symbol,
+                payload={
+                    "entry_order_id": entry_order_id,
+                    "parent_client_order_id": client_order_id,
+                    "failures": failures,
+                },
+            )
+        elif attachments:
+            self._record_execution_telemetry(
+                event_type="order_bracket_attached",
+                status="accepted",
+                symbol=symbol,
+                payload={
+                    "entry_order_id": entry_order_id,
+                    "parent_client_order_id": client_order_id,
+                    "attachments": attachments,
+                },
+            )
 
         return attachments
 
@@ -1043,49 +1334,29 @@ class VenueExecutionClient:
         position_side: str | None = None,
     ) -> ExecutionOrder:
         self.require_credentials()
-        exchange = self._get_exchange()
         self._ensure_markets_loaded()
-        market = exchange.market(symbol)
-        market_symbol = market.get("id") or symbol
-        order_type_normalized = (order_type or "").strip().lower()
-        if order_type_normalized not in {"market", "limit"}:
-            raise IntegrationError(f"Unsupported direct BitMart futures order type: {order_type!r}")
-
-        size_precise = exchange.amount_to_precision(symbol, amount)
-        size = int(float(size_precise))
-        if size <= 0:
-            raise IntegrationError(f"BitMart futures order size resolved to {size}; a positive contract size is required.")
-
-        request: dict[str, Any] = {
-            "symbol": market_symbol,
-            "type": order_type_normalized,
-            "side": self._bitmart_swap_side_code(side=side, reduce_only=reduce_only, position_side=position_side),
-            "size": size,
-        }
-        mode = self._bitmart_futures_order_mode(
-            order_type=order_type_normalized,
+        exchange = self._get_exchange()
+        prepared = self._prepare_bitmart_swap_order_request(
+            exchange=exchange,
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            amount=amount,
+            price=price,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            leverage=leverage,
+            margin_mode=margin_mode,
+            client_order_id=client_order_id,
             time_in_force=time_in_force,
             post_only=post_only,
+            reduce_only=reduce_only,
+            position_side=position_side,
         )
-        if mode is not None:
-            request["mode"] = mode
-        if order_type_normalized == "limit":
-            if price is None:
-                raise IntegrationError("BitMart futures limit orders require a price.")
-            request["price"] = exchange.price_to_precision(symbol, price)
-        if client_order_id:
-            request["client_order_id"] = client_order_id
-        if not reduce_only:
-            request["open_type"] = (margin_mode or os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross")).strip().lower() or "cross"
-            leverage_value = _format_bitmart_numeric(leverage)
-            if leverage_value is not None:
-                request["leverage"] = leverage_value
-            if take_profit_price is not None:
-                request["preset_take_profit_price"] = exchange.price_to_precision(symbol, take_profit_price)
-                request["preset_take_profit_price_type"] = 1
-            if stop_loss_price is not None:
-                request["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
-                request["preset_stop_loss_price_type"] = 1
+        market_symbol = prepared["market_symbol"]
+        order_type_normalized = prepared["order_type"]
+        size = prepared["size"]
+        request = prepared["request"]
 
         logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
         payload = self._post_bitmart_signed_futures_request(
@@ -1101,7 +1372,6 @@ class VenueExecutionClient:
             market_symbol=market_symbol,
             size=size,
             entry_side=side,
-            order_type=order_type_normalized,
             take_profit_price=take_profit_price,
             stop_loss_price=stop_loss_price,
             client_order_id=client_order_id,
@@ -1109,6 +1379,11 @@ class VenueExecutionClient:
             entry_order_id=str(data.get("order_id") or data.get("orderId") or "") or None,
             exchange=exchange,
         )
+        bracket_status = "not_requested"
+        if bracket_orders:
+            bracket_status = "partial_failure" if any(
+                details.get("status") == "failed" for details in bracket_orders.values() if isinstance(details, dict)
+            ) else "submitted"
         return ExecutionOrder(
             order_id=str(data.get("order_id") or data.get("orderId") or ""),
             exchange=self.provider.name,
@@ -1132,11 +1407,89 @@ class VenueExecutionClient:
                 "preset_take_profit_price": request.get("preset_take_profit_price"),
                 "preset_stop_loss_price": request.get("preset_stop_loss_price"),
                 "bitmart_bracket_orders": bracket_orders,
+                "bitmart_bracket_status": bracket_status,
                 "client_order_id": client_order_id,
             },
             created_at=submitted_at,
             updated_at=submitted_at,
         )
+
+    def preview_order_request(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: Literal["cross", "isolated"] | None = None,
+        client_order_id: str | None = None,
+        time_in_force: str | None = None,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
+    ) -> dict[str, Any]:
+        if not self._should_use_bitmart_direct_swap_submission(order_type):
+            raise IntegrationError(
+                "Dry-run payload preview is currently implemented only for BitMart direct futures market/limit orders."
+            )
+
+        self.require_credentials()
+        self._ensure_markets_loaded(public=True)
+        exchange = self._get_public_exchange()
+        prepared = self._prepare_bitmart_swap_order_request(
+            exchange=exchange,
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            amount=amount,
+            price=price,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            leverage=leverage,
+            margin_mode=margin_mode,
+            client_order_id=client_order_id,
+            time_in_force=time_in_force,
+            post_only=post_only,
+            reduce_only=reduce_only,
+            position_side=position_side,
+        )
+        bracket_specs = self._build_bitmart_bracket_request_specs(
+            symbol=symbol,
+            market_symbol=prepared["market_symbol"],
+            size=prepared["size"],
+            entry_side=side,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            client_order_id=client_order_id,
+            position_side=position_side,
+            exchange=exchange,
+        )
+        follow_ups: list[dict[str, Any]] = []
+        for label, spec in bracket_specs.items():
+            follow_ups.append(
+                {
+                    "label": label,
+                    **self._redact_bitmart_signed_request_preview(path=spec["path"], body=spec["body"]),
+                }
+            )
+
+        return {
+            "exchange": self.provider.name,
+            "venue": self.exchange_id,
+            "account_type": self.account_type,
+            "supported": True,
+            "mode": "dry_run",
+            "entry": self._redact_bitmart_signed_request_preview(
+                path=_BITMART_DIRECT_FUTURES_ORDER_PATH,
+                body=prepared["request"],
+            ),
+            "follow_up_count": len(follow_ups),
+            "follow_ups": follow_ups,
+        }
 
     def cancel_order(self, *, order_id: str, symbol: str | None = None) -> ExecutionOrder:
         exchange = self._get_exchange()

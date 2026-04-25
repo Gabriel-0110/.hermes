@@ -121,6 +121,7 @@ make dev-down
 More detail lives in:
 
 - [docs/workspace/LOCAL_DEV.md](/Users/openclaw/.hermes/docs/workspace/LOCAL_DEV.md)
+- [docs/workspace/GATEWAY_RUNTIME.md](/Users/openclaw/.hermes/docs/workspace/GATEWAY_RUNTIME.md)
 - [hermes/README.md](/Users/openclaw/.hermes/hermes/README.md)
 - [hermes-agent/README.md](/Users/openclaw/.hermes/hermes-agent/README.md)
 
@@ -184,6 +185,11 @@ the root such as:
 
 These are **runtime or machine-local files**, not repository content. They are
 intentionally ignored by Git and should stay that way.
+
+When the active Hermes profile is a named profile like `orchestrator`, the
+authoritative messaging runtime state is the profile-scoped file under
+`profiles/<name>/gateway_state.json`; the root-level `gateway_state.json` may
+be stale and should not be treated as authoritative.
 
 For example:
 

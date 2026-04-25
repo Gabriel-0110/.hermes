@@ -4855,6 +4855,17 @@ For more help on a command:
     gateway_status = gateway_subparsers.add_parser("status", help="Show gateway status")
     gateway_status.add_argument("--deep", action="store_true", help="Deep status check")
     gateway_status.add_argument("--system", action="store_true", help="Target the Linux system-level gateway service")
+
+    # gateway doctor
+    gateway_doctor = gateway_subparsers.add_parser(
+        "doctor",
+        help="Inspect gateway services, state files, and token ownership",
+    )
+    gateway_doctor.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON diagnostics",
+    )
     
     # gateway install
     gateway_install = gateway_subparsers.add_parser("install", help="Install gateway as a systemd/launchd background service")
