@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 import hermes_cli.ops_status as ops_status
 
 
@@ -121,3 +123,40 @@ def test_show_ops_status_renders_authoritative_gateway_state_path(monkeypatch, c
 
     assert exit_code == 0
     assert "/Users/test/.hermes/profiles/orchestrator/gateway_state.json" in output
+
+
+def test_cmd_doctor_defaults_to_ops_status(monkeypatch) -> None:
+    import hermes_cli.main as main_mod
+
+    monkeypatch.setattr(ops_status, "show_ops_status", lambda args: 7)
+
+    with pytest.raises(SystemExit) as exc:
+        main_mod.cmd_doctor(SimpleNamespace(setup=False, fix=False))
+
+    assert exc.value.code == 7
+
+
+def test_cmd_doctor_setup_uses_legacy_doctor(monkeypatch) -> None:
+    import hermes_cli.doctor as legacy_doctor
+    import hermes_cli.main as main_mod
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(legacy_doctor, "run_doctor", lambda args: seen.setdefault("args", args))
+
+    main_mod.cmd_doctor(SimpleNamespace(setup=True, fix=False))
+
+    assert isinstance(seen["args"], SimpleNamespace)
+
+
+def test_cmd_doctor_fix_implies_legacy_doctor(monkeypatch) -> None:
+    import hermes_cli.doctor as legacy_doctor
+    import hermes_cli.main as main_mod
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(legacy_doctor, "run_doctor", lambda args: seen.setdefault("args", args))
+
+    main_mod.cmd_doctor(SimpleNamespace(setup=False, fix=True))
+
+    assert isinstance(seen["args"], SimpleNamespace)

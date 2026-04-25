@@ -6,6 +6,8 @@ Usage:
     hermes                     # Interactive chat (default)
     hermes chat                # Interactive chat
     hermes ops status          # Show full local runtime health
+    hermes doctor              # Show full local runtime health
+    hermes doctor --setup      # Check configuration and dependencies
     hermes backtest            # Historical scorer replay and metrics
     hermes risk set-limit      # Persist symbol risk limits
     hermes gateway             # Run gateway in foreground
@@ -20,7 +22,6 @@ Usage:
     hermes cron                # Manage cron jobs
     hermes cron list           # List cron jobs
     hermes cron status         # Check if cron scheduler is running
-    hermes doctor              # Check configuration and dependencies
     hermes honcho setup                    # Configure Honcho AI memory integration
     hermes honcho status                   # Show Honcho config and connection status
     hermes honcho sessions                 # List directory → session name mappings
@@ -2903,9 +2904,16 @@ def cmd_webhook(args):
 
 
 def cmd_doctor(args):
-    """Check configuration and dependencies."""
-    from hermes_cli.doctor import run_doctor
-    run_doctor(args)
+    """Show runtime health by default, or setup diagnostics with --setup/--fix."""
+    if getattr(args, "setup", False) or getattr(args, "fix", False):
+        from hermes_cli.doctor import run_doctor
+
+        run_doctor(args)
+        return
+
+    from hermes_cli.ops_status import show_ops_status
+
+    sys.exit(show_ops_status(args))
 
 
 def cmd_dump(args):
@@ -5176,13 +5184,21 @@ For more help on a command:
     # =========================================================================
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Check configuration and dependencies",
-        description="Diagnose issues with Hermes Agent setup"
+        help="Show full local runtime health",
+        description=(
+            "Summarize the full local runtime health of Hermes. "
+            "Use --setup for configuration and dependency diagnostics."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="Run the legacy configuration/dependency diagnostics instead of the runtime health report",
     )
     doctor_parser.add_argument(
         "--fix",
         action="store_true",
-        help="Attempt to fix issues automatically"
+        help="Attempt to fix setup/configuration issues automatically (implies --setup)",
     )
     doctor_parser.set_defaults(func=cmd_doctor)
 

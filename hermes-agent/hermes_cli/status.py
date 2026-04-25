@@ -470,6 +470,7 @@ def show_status(args):
     
     print()
     print(color("─" * 60, Colors.DIM))
-    print(color("  Run 'hermes doctor' for detailed diagnostics", Colors.DIM))
+    print(color("  Run 'hermes doctor' or 'hermes ops status' for full runtime health", Colors.DIM))
+    print(color("  Run 'hermes doctor --setup' for config/dependency diagnostics", Colors.DIM))
     print(color("  Run 'hermes setup' to configure", Colors.DIM))
     print()

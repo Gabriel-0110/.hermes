@@ -40,9 +40,10 @@ hermes [global-options] <command> [subcommand/options]
 | `hermes auth` | Manage credentials — add, list, remove, reset, set strategy. Handles OAuth flows for Codex/Nous/Anthropic. |
 | `hermes login` / `logout` | **Deprecated** — use `hermes auth` instead. |
 | `hermes status` | Show agent, auth, and platform status. |
+| `hermes ops status` | Alias for the full local runtime health summary. |
 | `hermes cron` | Inspect and tick the cron scheduler. |
 | `hermes webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
-| `hermes doctor` | Diagnose config and dependency issues. |
+| `hermes doctor` | Show the full local runtime health summary. Use `--setup` for config/dependency diagnostics. |
 | `hermes dump` | Copy-pasteable setup summary for support/debugging. |
 | `hermes logs` | View, tail, and filter agent/gateway/error log files. |
 | `hermes config` | Show, edit, migrate, and query configuration files. |
@@ -272,12 +273,34 @@ Subscriptions persist to `~/.hermes/webhook_subscriptions.json` and are hot-relo
 ## `hermes doctor`
 
 ```bash
-hermes doctor [--fix]
+hermes doctor [--setup] [--fix]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--fix` | Attempt automatic repairs where possible. |
+| `--setup` | Run the legacy configuration/dependency doctor instead of the runtime health summary. |
+| `--fix` | Attempt automatic repairs where possible for setup/config issues. Implies `--setup`. |
+
+Examples:
+
+```bash
+hermes doctor
+hermes ops status
+hermes doctor --setup
+hermes doctor --setup --fix
+```
+
+`hermes doctor` and `hermes ops status` render the same operational report, covering the active profile, dev stack health, API/dashboard/web health, LiteLLM, Redis, Postgres/TimescaleDB, MinIO (if configured), gateway runtime state, messaging platform connectivity, launchd services, duplicate/stale gateway processes, stale lock files, smoke-test artifacts, cron jobs, and the last known trading mode.
+
+Use `hermes doctor --setup` when you specifically want the older dependency/configuration diagnostics and repair hints.
+
+## `hermes ops status`
+
+```bash
+hermes ops status
+```
+
+Alias for the operational runtime health report shown by `hermes doctor`.
 
 ## `hermes dump`
 
