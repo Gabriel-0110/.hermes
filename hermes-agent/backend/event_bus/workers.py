@@ -7,11 +7,10 @@ import json
 import logging
 import os
 import sys
-import time
 
 from backend.integrations.execution.normalization import execution_order_payload
 from .consumer import RedisStreamWorker
-from .models import TradingEvent, TradingEventEnvelope
+from .models import TradingEventEnvelope
 from backend.trading.lifecycle_notifications import (
     notify_approval_required,
     notify_kill_switch_blocked,
@@ -24,25 +23,6 @@ logger = logging.getLogger(__name__)
 
 _LIMITS_KEY = "hermes:risk:limits"
 _EQUITY_PEAK_KEY = "hermes:risk:equity_peak"
-
-
-def _parse_drawdown_peak(raw: object) -> float | None:
-    if raw in (None, "", b""):
-        return None
-    try:
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        if isinstance(raw, str):
-            stripped = raw.strip()
-            if stripped.startswith("{"):
-                payload = json.loads(stripped)
-                return float(payload.get("equity") or 0.0)
-            return float(stripped)
-        if isinstance(raw, dict):
-            return float(raw.get("equity") or 0.0)
-        return float(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
 
 
 def _check_and_enforce_drawdown() -> bool:
@@ -64,7 +44,7 @@ def _check_and_enforce_drawdown() -> bool:
         peak_raw = redis.get(_EQUITY_PEAK_KEY)
         if not peak_raw:
             return False
-        peak_equity = _parse_drawdown_peak(peak_raw) or 0.0
+        peak_equity = float(json.loads(peak_raw).get("equity", 0) or 0)
         if peak_equity <= 0:
             return False
 
@@ -117,9 +97,6 @@ def orchestrator_handler(event: TradingEventEnvelope) -> bool:
 
     if ev.event_type == "tradingview_signal_ready":
         return _handle_signal_ready(event)
-
-    if ev.event_type == "whale_flow":
-        return _handle_whale_flow(event)
 
     if ev.event_type == "execution_requested":
         return _handle_execution_requested(event)
@@ -253,18 +230,6 @@ def _default_size_usd_for_strategy(strategy_name: str) -> float:
     return 50.0
 
 
-def _size_usd_for_candidate(strategy_name: str, candidate) -> float:
-    try:
-        from backend.strategies.runners import BOT_RUNNER_REGISTRY
-
-        runner_cls = BOT_RUNNER_REGISTRY.get(strategy_name)
-        if runner_cls is not None:
-            return float(runner_cls().size_for_candidate(candidate))
-    except Exception as exc:
-        logger.debug("signal_ready_worker: dynamic size lookup failed for %s: %s", strategy_name, exc)
-    return _default_size_usd_for_strategy(strategy_name)
-
-
 def _score_tradingview_candidate(
     *,
     strategy_name: str,
@@ -279,9 +244,9 @@ def _score_tradingview_candidate(
     funding_data = _fetch_funding_data(symbol)
 
     if strategy_name == "momentum":
-        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data, timeframe=timeframe)
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
     if strategy_name == "mean_reversion":
-        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data, timeframe=timeframe)
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
     if strategy_name == "breakout":
         return scorer(
             symbol,
@@ -290,7 +255,6 @@ def _score_tradingview_candidate(
             order_book_data=_fetch_order_book_data(_funding_symbol(symbol)),
             regime=regime,
             funding_data=funding_data,
-            timeframe=timeframe,
         )
 
     raise ValueError(f"Unsupported strategy for TradingView signal scoring: {strategy_name}")
@@ -417,7 +381,7 @@ def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
 
         proposal = proposal_from_candidate(
             candidate,
-            size_usd=_size_usd_for_candidate(strategy_name, candidate),
+            size_usd=_default_size_usd_for_strategy(strategy_name),
             source_agent="tradingview_signal_worker",
             strategy_id=f"tradingview/{strategy_name}",
             timeframe=timeframe,
@@ -469,91 +433,6 @@ def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
     except Exception as exc:
         logger.exception(
             "signal_ready_worker: failed for event_id=%s symbol=%s: %s",
-            ev.event_id,
-            symbol,
-            exc,
-        )
-        return False
-
-
-def _handle_whale_flow(event: TradingEventEnvelope) -> bool:
-    """Convert a whale-flow event into a standard trade proposal when actionable."""
-    ev = event.event
-    payload = ev.payload or {}
-    symbol = str(ev.symbol or payload.get("symbol") or "").strip().upper()
-    if not symbol:
-        logger.warning("whale_flow_worker: missing symbol for event_id=%s", ev.event_id)
-        return True
-
-    try:
-        from backend.observability.service import get_observability_service
-        from backend.strategies.registry import STRATEGY_REGISTRY
-        from backend.strategies.whale_follower import build_whale_follow_proposal, score_whale_follower
-        from backend.trading import dispatch_trade_proposal
-
-        observability = get_observability_service()
-        candidate = score_whale_follower(symbol, payload, regime=_fetch_market_regime())
-        observability.record_agent_decision(
-            agent_name="strategy_agent",
-            status="completed",
-            decision=candidate.direction,
-            summarized_input={"event": ev.model_dump(mode="json")},
-            summarized_output={"candidate": candidate.model_dump(mode="json")},
-            metadata={"strategy_name": "whale_follower", "event_id": ev.event_id},
-        )
-
-        strategy_def = STRATEGY_REGISTRY["whale_follower"]
-        if candidate.direction == "watch" or candidate.confidence < strategy_def.min_confidence:
-            observability.record_execution_event(
-                status="ignored",
-                event_type="whale_flow_filtered",
-                symbol=symbol,
-                correlation_id=ev.correlation_id,
-                workflow_run_id=ev.workflow_id,
-                payload={
-                    "reason": "watch_or_low_confidence",
-                    "min_confidence": strategy_def.min_confidence,
-                    "candidate": candidate.model_dump(mode="json"),
-                    "source_event_id": ev.event_id,
-                },
-            )
-            return True
-
-        proposal = build_whale_follow_proposal(candidate, payload, source_agent="whale_flow_worker")
-        dispatch_result = dispatch_trade_proposal(proposal)
-        logger.info(
-            "whale_flow_worker: dispatched proposal_id=%s symbol=%s status=%s",
-            proposal.proposal_id,
-            symbol,
-            dispatch_result.status,
-        )
-        observability.record_execution_event(
-            status=dispatch_result.status,
-            event_type="whale_flow_dispatched",
-            symbol=symbol,
-            correlation_id=ev.correlation_id,
-            workflow_run_id=ev.workflow_id,
-            payload={
-                "candidate": candidate.model_dump(mode="json"),
-                "proposal_id": proposal.proposal_id,
-                "dispatch_status": dispatch_result.status,
-                "source_event_id": ev.event_id,
-            },
-        )
-        return True
-
-    except ValueError as exc:
-        logger.warning(
-            "whale_flow_worker: invalid whale_flow event_id=%s symbol=%s: %s",
-            ev.event_id,
-            symbol,
-            exc,
-        )
-        return True
-
-    except Exception as exc:
-        logger.exception(
-            "whale_flow_worker: failed for event_id=%s symbol=%s: %s",
             ev.event_id,
             symbol,
             exc,
@@ -859,8 +738,6 @@ def _place_paired_live_order(event: TradingEventEnvelope, *, request) -> bool:
                 amount=amount,
                 price=float(leg.price) if leg.price is not None else None,
                 client_order_id=leg.client_order_id,
-                leverage=leg.leverage,
-                margin_mode=leg.margin_mode,
                 reduce_only=leg.reduce_only,
                 position_side=leg.position_side,
             )
@@ -891,11 +768,6 @@ def _place_paired_live_order(event: TradingEventEnvelope, *, request) -> bool:
                 ],
             },
         )
-        from backend.integrations.execution.mode import schedule_paper_shadow_for_request
-
-        shadow_fill_times = schedule_paper_shadow_for_request(request, result)
-        if shadow_fill_times:
-            result.payload["paper_shadow_fill_at"] = shadow_fill_times
         _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
         notify_live_execution_submitted(
             symbol=request.symbol,
@@ -1048,10 +920,6 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
             ),
             price=float(request.price) if request.price is not None else None,
             client_order_id=request.client_order_id,
-            leverage=request.leverage,
-            margin_mode=request.margin_mode,
-            stop_loss_price=request.stop_loss_price,
-            take_profit_price=request.take_profit_price,
         )
         logger.info(
             "execution_handler: live order placed request_id=%s order_id=%s symbol=%s",
@@ -1076,11 +944,6 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
                 ),
             },
         )
-        from backend.integrations.execution.mode import schedule_paper_shadow_for_request
-
-        shadow_fill_times = schedule_paper_shadow_for_request(request, result)
-        if shadow_fill_times:
-            result.payload["paper_shadow_fill_at"] = shadow_fill_times[0] if len(shadow_fill_times) == 1 else shadow_fill_times
         _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
         notify_live_execution_submitted(
             symbol=order.symbol,
@@ -1283,123 +1146,6 @@ def notification_handler(event: TradingEventEnvelope) -> bool:
     return True
 
 
-def _coerce_symbol_list(value: str | list[str] | None) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        tokens = [token.strip().upper() for token in value.split(",") if token.strip()]
-        return tokens or None
-
-    tokens = [str(token or "").strip().upper() for token in value if str(token or "").strip()]
-    return tokens or None
-
-
-def run_funding_spread_watcher_once(
-    *,
-    symbols: str | list[str] | None = None,
-    venues: str | list[str] | None = None,
-    limit: int = 20,
-    threshold: float = 0.0002,
-) -> list[TradingEventEnvelope]:
-    """Scan aggregate funding rates and publish cross-venue spread events."""
-    from backend.event_bus.publisher import publish_trading_event
-    from backend.tools.get_funding_rates import get_funding_rates
-
-    requested_symbols = _coerce_symbol_list(symbols)
-    response = get_funding_rates(
-        {
-            "symbols": requested_symbols,
-            "limit": limit,
-            "venue": venues if venues is not None else "all",
-        }
-    )
-    if not _tool_ok(response):
-        logger.warning("funding_spread_watcher: get_funding_rates returned non-ok response")
-        return []
-
-    data = _tool_data(response, {})
-    if not isinstance(data, dict):
-        return []
-
-    spread_rows = data.get("symbols") if data.get("aggregated") else []
-    if not isinstance(spread_rows, list):
-        return []
-
-    published: list[TradingEventEnvelope] = []
-    for row in spread_rows:
-        if not isinstance(row, dict):
-            continue
-
-        symbol = str(row.get("symbol") or "").upper()
-        funding_spread = float(row.get("funding_spread_8h") or 0.0)
-        if not symbol or abs(funding_spread) < threshold:
-            continue
-
-        max_venue = row.get("max_funding_venue")
-        min_venue = row.get("min_funding_venue")
-        event = TradingEvent(
-            event_type="funding_spread_detected",
-            symbol=symbol,
-            correlation_id=f"funding-spread::{symbol}",
-            producer="funding_spread_watcher",
-            workflow_id=f"watcher::funding_spread::{symbol}",
-            payload={
-                "symbol": symbol,
-                "funding_spread_8h": funding_spread,
-                "funding_spread_bps": row.get("funding_spread_bps"),
-                "spread_threshold_8h": threshold,
-                "highest_funding_leg": {
-                    "venue": max_venue,
-                    "exchange": row.get("max_funding_exchange"),
-                    "funding_rate": row.get("max_funding_rate"),
-                },
-                "lowest_funding_leg": {
-                    "venue": min_venue,
-                    "exchange": row.get("min_funding_exchange"),
-                    "funding_rate": row.get("min_funding_rate"),
-                },
-                "trade_hint": {
-                    "short_perp_venue": max_venue,
-                    "long_perp_venue": min_venue,
-                    "thesis": "Funding spread exceeds the cross-venue carry watch threshold.",
-                },
-                "venue_details": row.get("venues") or [],
-                "requested_venues": data.get("requested_venues") or [],
-            },
-            metadata={
-                "watcher": "funding_spread",
-                "threshold": threshold,
-                "limit": limit,
-            },
-        )
-        published.append(publish_trading_event(event))
-
-    return published
-
-
-def run_funding_spread_watcher_forever(
-    *,
-    symbols: str | list[str] | None = None,
-    venues: str | list[str] | None = None,
-    limit: int = 20,
-    threshold: float = 0.0002,
-    interval_seconds: int = 300,
-) -> None:
-    """Continuously poll funding spreads and publish events when thresholds trip."""
-    while True:
-        published = run_funding_spread_watcher_once(
-            symbols=symbols,
-            venues=venues,
-            limit=limit,
-            threshold=threshold,
-        )
-        logger.info(
-            "funding_spread_watcher: published %s funding spread signal(s)",
-            len(published),
-        )
-        time.sleep(max(interval_seconds, 1))
-
-
 # ---------------------------------------------------------------------------
 # Worker builders
 # ---------------------------------------------------------------------------
@@ -1424,13 +1170,7 @@ def build_execution_worker() -> RedisStreamWorker:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a Hermes Redis Streams worker")
-    parser.add_argument("worker", choices=("orchestrator", "notifications", "execution", "funding_spread_watcher"))
-    parser.add_argument("--symbols", default=None, help="Comma-separated symbols for the funding spread watcher.")
-    parser.add_argument("--venues", default="all", help="Venue, comma-separated venue list, or 'all' for the funding spread watcher.")
-    parser.add_argument("--limit", type=int, default=20, help="Maximum symbols to scan per funding spread pass.")
-    parser.add_argument("--threshold", type=float, default=0.0002, help="Minimum absolute funding spread per 8h required to publish an event.")
-    parser.add_argument("--interval-seconds", type=int, default=300, help="Polling interval for the funding spread watcher.")
-    parser.add_argument("--once", action="store_true", help="Run the funding spread watcher once and exit.")
+    parser.add_argument("worker", choices=("orchestrator", "notifications", "execution"))
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -1441,25 +1181,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.worker == "execution":
         build_execution_worker().run_forever(_handle_execution_requested)
-        return 0
-
-    if args.worker == "funding_spread_watcher":
-        if args.once:
-            run_funding_spread_watcher_once(
-                symbols=args.symbols,
-                venues=args.venues,
-                limit=args.limit,
-                threshold=args.threshold,
-            )
-            return 0
-
-        run_funding_spread_watcher_forever(
-            symbols=args.symbols,
-            venues=args.venues,
-            limit=args.limit,
-            threshold=args.threshold,
-            interval_seconds=args.interval_seconds,
-        )
         return 0
 
     build_notification_worker().run_forever(notification_handler)

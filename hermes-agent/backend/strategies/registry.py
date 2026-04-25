@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Literal
+from typing import Callable, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class StrategyDefinition(BaseModel):
     """Metadata for a named trading strategy."""
 
     name: str
-    strategy_type: Literal["momentum", "mean_reversion", "breakout", "carry", "flow"]
+    strategy_type: Literal["momentum", "mean_reversion", "breakout", "carry"]
     description: str
     version: str = "1.0.0"
     timeframes: list[str]
@@ -25,8 +25,6 @@ class ScoredCandidate(BaseModel):
     symbol: str
     direction: Literal["long", "short", "watch"]
     confidence: float
-    chronos_score: float | None = None
-    sizing_hints: dict[str, Any] = Field(default_factory=dict)
     rationale: str
     strategy_name: str
     strategy_version: str = "1.0.0"
@@ -91,30 +89,6 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         universe_filter="large_cap",
         min_confidence=0.0,
     ),
-    "liquidation_hunt": StrategyDefinition(
-        name="liquidation_hunt",
-        strategy_type="mean_reversion",
-        description=(
-            "Liquidation-reversal strategy: buy sharp downside flushes after heavy long-side liquidation "
-            "pressure once price stretches materially below short-horizon VWAP."
-        ),
-        version="1.0.0",
-        timeframes=["5m", "15m"],
-        universe_filter="large_cap",
-        min_confidence=0.0,
-    ),
-    "whale_follower": StrategyDefinition(
-        name="whale_follower",
-        strategy_type="flow",
-        description=(
-            "Event-driven strategy that follows fresh BitMart Wallet AI smart-money accumulation "
-            "when top-performing wallets buy into the configured universe within the last hour."
-        ),
-        version="1.0.0",
-        timeframes=["30m"],
-        universe_filter="large_cap",
-        min_confidence=0.30,
-    ),
 }
 
 
@@ -158,10 +132,6 @@ def get_strategy_scorer(strategy_name: str) -> StrategyScorer:
         from backend.strategies.breakout import score_breakout
 
         return score_breakout
-    if normalized == "whale_follower":
-        from backend.strategies.whale_follower import score_whale_follower
-
-        return score_whale_follower
 
     raise ValueError(
         f"No scorer registered for strategy {strategy_name!r}. Available: {sorted(STRATEGY_REGISTRY)}"
@@ -182,10 +152,6 @@ def _normalize_strategy_name(value: str | None) -> str | None:
         return "breakout"
     if "mean" in normalized and ("reversion" in normalized or "revert" in normalized):
         return "mean_reversion"
-    if "liquidation" in normalized or "liq_hunt" in normalized or "liquidation_hunt" in normalized:
-        return "liquidation_hunt"
     if "carry" in normalized:
         return "delta_neutral_carry"
-    if "whale" in normalized or "smart_money" in normalized or "smart-money" in normalized:
-        return "whale_follower"
     return None

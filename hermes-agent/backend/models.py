@@ -112,12 +112,6 @@ class EventRiskSummary(BaseModel):
     summary: str
     catalysts: list[str] = Field(default_factory=list)
     watch_items: list[str] = Field(default_factory=list)
-    matched_keywords: list[str] = Field(default_factory=list)
-    blackout_active: bool = False
-    blackout_reason: str | None = None
-    blackout_window_minutes: int | None = None
-    minutes_to_event: float | None = None
-    event_time: str | None = None
 
 
 class MacroSeries(BaseModel):
@@ -406,7 +400,6 @@ class ExecutionOrder(BaseModel):
     time_in_force: str | None = None
     post_only: bool | None = None
     reduce_only: bool | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -452,7 +445,6 @@ class NormalizedResponse(BaseModel):
 class OrderBookLevel(BaseModel):
     price: float
     amount: float
-    exchange: str | None = None
 
 
 class OrderBookSnapshot(BaseModel):
@@ -476,7 +468,6 @@ class OrderBookSnapshot(BaseModel):
 
 class FundingRateEntry(BaseModel):
     symbol: str
-    exchange: str | None = None
     funding_rate: float | None = None
     funding_time: str | None = None
     mark_price: float | None = None
@@ -488,7 +479,7 @@ class FundingRateEntry(BaseModel):
 class FundingRatesSnapshot(BaseModel):
     symbols: list[FundingRateEntry] = Field(default_factory=list)
     as_of: str | None = None
-    source: str = "derivatives_public"
+    source: str = "binance_futures_public"
 
 
 class LiquidationEntry(BaseModel):
@@ -550,11 +541,9 @@ class RiskState(BaseModel):
     kill_switch_reason: str | None = None
     kill_switch_set_at: str | None = None
     max_position_usd: float | None = None
-    max_leverage: float | None = None
     max_daily_loss_usd: float | None = None
     drawdown_limit_pct: float = 10.0
     carry_trade_max_equity_pct: float = 30.0
-    symbol_limits: dict[str, dict[str, float | None]] = Field(default_factory=dict)
     current_equity_usd: float | None = None
     peak_equity_usd: float | None = None
     current_drawdown_pct: float | None = None

@@ -92,7 +92,6 @@ def _persist_strategy_scan_artifacts(
                     "timeframe": proposal.timeframe,
                     "source_agent": proposal.source_agent,
                     "rationale": candidate.rationale if candidate is not None else proposal.rationale,
-                    "chronos_score": candidate.chronos_score if candidate is not None else proposal.metadata.get("chronos_score"),
                     "metadata": proposal.metadata,
                 }
 
@@ -124,7 +123,6 @@ def _persist_strategy_scan_artifacts(
                                 "strategy_id": proposal.strategy_id,
                                 "source_agent": proposal.source_agent,
                                 "signal_type": strategy_name,
-                                "chronos_score": candidate.chronos_score,
                                 "metadata": proposal.metadata,
                             },
                         )
@@ -173,11 +171,7 @@ def proposal_from_candidate(
         strategy_template_id=candidate.strategy_name,
         timeframe=timeframe,
         require_operator_approval=require_operator_approval,
-        metadata={
-            "confidence": candidate.confidence,
-            "chronos_score": candidate.chronos_score,
-            **(metadata or {}),
-        },
+        metadata=metadata or {},
     )
 
 
@@ -529,10 +523,6 @@ def _stub_execution_request(
         strategy_id=proposal.strategy_id,
         strategy_template_id=proposal.strategy_template_id,
         timeframe=proposal.timeframe,
-        leverage=proposal.leverage,
-        margin_mode=proposal.margin_mode,
-        stop_loss_price=proposal.stop_loss_price,
-        take_profit_price=proposal.take_profit_price,
         source_agent=proposal.source_agent,
         policy_trace=decision.policy_trace,
         metadata={**proposal.metadata, "dry_run": True},

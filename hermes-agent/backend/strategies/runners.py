@@ -13,12 +13,10 @@ import logging
 from typing import Any
 
 from backend.strategies.delta_neutral_carry import DeltaNeutralCarryBotRunner
-from backend.strategies.liquidation_hunt import LiquidationHuntBotRunner
 from backend.strategies.breakout import score_breakout
 from backend.strategies.mean_reversion import score_mean_reversion
 from backend.strategies.momentum import score_momentum
 from backend.strategies.registry import ScoredCandidate
-from backend.trading.sizing import vol_target_size
 from backend.trading.bot_runner import StrategyBotRunner
 
 logger = logging.getLogger(__name__)
@@ -93,57 +91,6 @@ def _fetch_funding_rates(universe: list[str]) -> dict[str, float]:
         return {}
 
 
-def _portfolio_risk_budget_usd(*, fallback_usd: float, risk_fraction: float = 0.02) -> tuple[float, float | None]:
-    try:
-        from backend.tools.get_portfolio_state import get_portfolio_state  # type: ignore[import]
-
-        response = get_portfolio_state({})
-        data = response.get("data") if isinstance(response, dict) else {}
-        equity = None
-        if isinstance(data, dict):
-            equity = data.get("total_equity_usd") or data.get("total_value_usd")
-        if equity is not None:
-            equity_float = float(equity)
-            return round(max(equity_float * risk_fraction, fallback_usd), 2), equity_float
-    except Exception as exc:
-        logger.debug("runners: get_portfolio_state sizing lookup failed: %s", exc)
-    return float(fallback_usd), None
-
-
-def _timeframe_to_hours(value: str | None, *, default: float) -> float:
-    normalized = str(value or "").strip().lower()
-    if not normalized:
-        return default
-    try:
-        if normalized.endswith("m"):
-            return max(float(normalized[:-1]) / 60.0, 0.25)
-        if normalized.endswith("h"):
-            return max(float(normalized[:-1]), 0.25)
-        if normalized.endswith("d"):
-            return max(float(normalized[:-1]) * 24.0, 1.0)
-    except ValueError:
-        return default
-    return default
-
-
-def _vol_target_candidate_size(candidate: ScoredCandidate, *, fallback_usd: float, default_holding_hours: float) -> float:
-    hints = candidate.sizing_hints or {}
-    atr = hints.get("atr")
-    price = hints.get("price")
-    timeframe_hours = _timeframe_to_hours(hints.get("timeframe"), default=default_holding_hours)
-    risk_budget_usd, equity_usd = _portfolio_risk_budget_usd(fallback_usd=fallback_usd)
-    max_size_usd = equity_usd * 0.25 if equity_usd is not None else None
-    return vol_target_size(
-        candidate.symbol,
-        risk_budget_usd,
-        float(atr) if atr is not None else None,
-        price=float(price) if price is not None else None,
-        holding_period_hours=timeframe_hours,
-        min_size_usd=fallback_usd,
-        max_size_usd=max_size_usd,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Momentum runner
 # ---------------------------------------------------------------------------
@@ -188,9 +135,6 @@ class MomentumBotRunner(StrategyBotRunner):
     def timeframe_for_candidate(self, candidate: ScoredCandidate) -> str | None:
         return "4h"
 
-    def size_for_candidate(self, candidate: ScoredCandidate) -> float:
-        return _vol_target_candidate_size(candidate, fallback_usd=self.default_size_usd, default_holding_hours=4.0)
-
 
 # ---------------------------------------------------------------------------
 # Mean-reversion runner
@@ -226,9 +170,6 @@ class MeanReversionBotRunner(StrategyBotRunner):
 
     def timeframe_for_candidate(self, candidate: ScoredCandidate) -> str | None:
         return "1h"
-
-    def size_for_candidate(self, candidate: ScoredCandidate) -> float:
-        return _vol_target_candidate_size(candidate, fallback_usd=self.default_size_usd, default_holding_hours=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +210,6 @@ class BreakoutBotRunner(StrategyBotRunner):
     def timeframe_for_candidate(self, candidate: ScoredCandidate) -> str | None:
         return "4h"
 
-    def size_for_candidate(self, candidate: ScoredCandidate) -> float:
-        return _vol_target_candidate_size(candidate, fallback_usd=self.default_size_usd, default_holding_hours=4.0)
-
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -282,7 +220,6 @@ BOT_RUNNER_REGISTRY: dict[str, type[StrategyBotRunner]] = {
     "mean_reversion": MeanReversionBotRunner,
     "breakout": BreakoutBotRunner,
     "delta_neutral_carry": DeltaNeutralCarryBotRunner,
-    "liquidation_hunt": LiquidationHuntBotRunner,
 }
 """Named registry of built-in bot runners.
 
