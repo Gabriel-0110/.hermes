@@ -12,6 +12,10 @@ def test_provider_profiles_cover_requested_integrations():
         "etherscan",
         "lunarcrush",
         "nansen",
+        "bitmart_public",
+        "binance_public",
+        "bybit_public",
+        "okx_public",
         "bitmart",
         "defillama",
     }.issubset(set(PROVIDER_PROFILES))

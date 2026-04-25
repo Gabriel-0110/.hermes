@@ -47,6 +47,7 @@ class SetRiskLimitsInput(BaseModel):
     max_position_usd: float | None = None
     max_daily_loss_usd: float | None = None
     drawdown_limit_pct: float | None = None
+    carry_trade_max_equity_pct: float | None = None
 
 
 _LIMITS_KEY = "hermes:risk:limits"
@@ -67,6 +68,8 @@ def set_risk_limits(payload: dict) -> dict:
             existing["max_daily_loss_usd"] = args.max_daily_loss_usd
         if args.drawdown_limit_pct is not None:
             existing["drawdown_limit_pct"] = args.drawdown_limit_pct
+        if args.carry_trade_max_equity_pct is not None:
+            existing["carry_trade_max_equity_pct"] = args.carry_trade_max_equity_pct
 
         redis.set(_LIMITS_KEY, json.dumps(existing))
         return envelope("set_risk_limits", [provider_ok("REDIS")], {"saved": existing})

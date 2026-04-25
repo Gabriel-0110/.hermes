@@ -1,0 +1,269 @@
+{
+  "ETH": {
+    "last": 2313.85,
+    "scenarios": [
+      {
+        "step": 1,
+        "hours_ahead": 4,
+        "low": 2299.91,
+        "median": 2317.08,
+        "high": 2351.4
+      },
+      {
+        "step": 2,
+        "hours_ahead": 8,
+        "low": 2299.91,
+        "median": 2325.66,
+        "high": 2351.4
+      },
+      {
+        "step": 3,
+        "hours_ahead": 12,
+        "low": 2299.91,
+        "median": 2334.24,
+        "high": 2353.12
+      },
+      {
+        "step": 4,
+        "hours_ahead": 16,
+        "low": 2299.91,
+        "median": 2334.24,
+        "high": 2368.57
+      },
+      {
+        "step": 5,
+        "hours_ahead": 20,
+        "low": 2299.91,
+        "median": 2334.24,
+        "high": 2402.89
+      },
+      {
+        "step": 6,
+        "hours_ahead": 24,
+        "low": 2299.91,
+        "median": 2351.4,
+        "high": 2404.61
+      },
+      {
+        "step": 7,
+        "hours_ahead": 28,
+        "low": 2317.08,
+        "median": 2368.57,
+        "high": 2421.77
+      },
+      {
+        "step": 8,
+        "hours_ahead": 32,
+        "low": 2317.08,
+        "median": 2368.57,
+        "high": 2438.94
+      },
+      {
+        "step": 9,
+        "hours_ahead": 36,
+        "low": 2317.08,
+        "median": 2385.73,
+        "high": 2438.94
+      },
+      {
+        "step": 10,
+        "hours_ahead": 40,
+        "low": 2317.08,
+        "median": 2368.57,
+        "high": 2437.22
+      },
+      {
+        "step": 11,
+        "hours_ahead": 44,
+        "low": 2317.08,
+        "median": 2368.57,
+        "high": 2437.22
+      },
+      {
+        "step": 12,
+        "hours_ahead": 48,
+        "low": 2317.08,
+        "median": 2351.4,
+        "high": 2437.22
+      }
+    ]
+  },
+  "BTC": {
+    "last": 77438.12,
+    "scenarios": [
+      {
+        "step": 1,
+        "hours_ahead": 4,
+        "low": 76648.67,
+        "median": 77208.15,
+        "high": 77767.63
+      },
+      {
+        "step": 2,
+        "hours_ahead": 8,
+        "low": 76089.2,
+        "median": 77208.15,
+        "high": 78327.11
+      },
+      {
+        "step": 3,
+        "hours_ahead": 12,
+        "low": 76089.2,
+        "median": 77208.15,
+        "high": 78327.11
+      },
+      {
+        "step": 4,
+        "hours_ahead": 16,
+        "low": 76648.67,
+        "median": 77767.63,
+        "high": 78886.59
+      },
+      {
+        "step": 5,
+        "hours_ahead": 20,
+        "low": 76089.2,
+        "median": 77767.63,
+        "high": 79446.06
+      },
+      {
+        "step": 6,
+        "hours_ahead": 24,
+        "low": 76089.2,
+        "median": 77767.63,
+        "high": 79502.01
+      },
+      {
+        "step": 7,
+        "hours_ahead": 28,
+        "low": 76089.2,
+        "median": 78327.11,
+        "high": 80005.55
+      },
+      {
+        "step": 8,
+        "hours_ahead": 32,
+        "low": 76089.2,
+        "median": 78327.11,
+        "high": 80565.03
+      },
+      {
+        "step": 9,
+        "hours_ahead": 36,
+        "low": 76033.25,
+        "median": 77767.63,
+        "high": 80005.55
+      },
+      {
+        "step": 10,
+        "hours_ahead": 40,
+        "low": 76089.2,
+        "median": 78327.11,
+        "high": 80061.49
+      },
+      {
+        "step": 11,
+        "hours_ahead": 44,
+        "low": 75529.71,
+        "median": 78327.11,
+        "high": 80005.55
+      },
+      {
+        "step": 12,
+        "hours_ahead": 48,
+        "low": 74970.23,
+        "median": 77767.63,
+        "high": 80565.03
+      }
+    ]
+  },
+  "SOL": {
+    "last": 86.16,
+    "scenarios": [
+      {
+        "step": 1,
+        "hours_ahead": 4,
+        "low": 85.42,
+        "median": 86.05,
+        "high": 86.68
+      },
+      {
+        "step": 2,
+        "hours_ahead": 8,
+        "low": 84.78,
+        "median": 86.05,
+        "high": 87.32
+      },
+      {
+        "step": 3,
+        "hours_ahead": 12,
+        "low": 85.42,
+        "median": 86.68,
+        "high": 87.95
+      },
+      {
+        "step": 4,
+        "hours_ahead": 16,
+        "low": 84.78,
+        "median": 86.05,
+        "high": 87.95
+      },
+      {
+        "step": 5,
+        "hours_ahead": 20,
+        "low": 85.35,
+        "median": 86.68,
+        "high": 87.95
+      },
+      {
+        "step": 6,
+        "hours_ahead": 24,
+        "low": 84.15,
+        "median": 86.68,
+        "high": 88.64
+      },
+      {
+        "step": 7,
+        "hours_ahead": 28,
+        "low": 84.78,
+        "median": 86.68,
+        "high": 89.21
+      },
+      {
+        "step": 8,
+        "hours_ahead": 32,
+        "low": 84.78,
+        "median": 86.68,
+        "high": 88.64
+      },
+      {
+        "step": 9,
+        "hours_ahead": 36,
+        "low": 84.15,
+        "median": 86.68,
+        "high": 89.21
+      },
+      {
+        "step": 10,
+        "hours_ahead": 40,
+        "low": 84.78,
+        "median": 86.68,
+        "high": 89.21
+      },
+      {
+        "step": 11,
+        "hours_ahead": 44,
+        "low": 84.15,
+        "median": 86.37,
+        "high": 89.21
+      },
+      {
+        "step": 12,
+        "hours_ahead": 48,
+        "low": 84.15,
+        "median": 86.05,
+        "high": 89.21
+      }
+    ]
+  }
+}

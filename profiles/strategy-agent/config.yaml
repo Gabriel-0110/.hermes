@@ -2,7 +2,7 @@ model:
   default: strategy-default
   provider: litellm
   base_url: ''
-  context_length: 65536
+  context_length: 32768
 providers: {}
 litellm_gateway:
   enabled: true

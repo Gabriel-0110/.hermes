@@ -1,8 +1,13 @@
 model_list:
   - model_name: orchestrator-default
     litellm_params:
-      model: openai/gpt-5.5
-      api_key: os.environ/OPENAI_API_KEY_1
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-sonnet-4-6
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: execution-default
     litellm_params:
@@ -10,82 +15,138 @@ model_list:
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
       request_timeout: 120
-      context_window: 32768
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: orchestrator-fallback-1
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY_1
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-opus-4-6-v1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: orchestrator-fallback-2
     litellm_params:
-      model: openai/gpt-5.4-mini
-      api_key: os.environ/OPENAI_API_KEY_2
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 120
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: research-default
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY_2
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-opus-4-6-v1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: research-fallback-1
     litellm_params:
-      model: openai/gpt-5.4
-      api_key: os.environ/OPENAI_API_KEY_3
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-opus-4-6-v1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: research-fallback-2
     litellm_params:
-      model: anthropic/claude-haiku-4-5
-      api_key: os.environ/ANTHROPIC_API_KEY_3
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 120
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: portfolio-default
     litellm_params:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: portfolio-fallback-1
     litellm_params:
-      model: lm_studio/google/gemma-4-e4b
+      model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: portfolio-fallback-2
     litellm_params:
-      model: openai/gpt-5.4-mini
-      api_key: os.environ/OPENAI_API_KEY_4
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 120
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: risk-default
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY_4
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-opus-4-6-v1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: risk-fallback-1
     litellm_params:
-      model: openai/gpt-5.4
-      api_key: os.environ/OPENAI_API_KEY_5
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 120
+    model_info:
+      max_input_tokens: 200000
 
   - model_name: risk-fallback-2
     litellm_params:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: strategy-default
     litellm_params:
-      model: lm_studio/google/gemma-4-e4b
+      model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: strategy-fallback-1
     litellm_params:
       model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
+    model_info:
+      max_input_tokens: 32768
 
   - model_name: strategy-fallback-2
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY_5
+      model: bedrock/arn:aws:bedrock:us-east-2:484907505910:inference-profile/global.anthropic.claude-opus-4-6-v1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+      aws_region_name: us-east-2
+      request_timeout: 300
+    model_info:
+      max_input_tokens: 200000
 
 litellm_settings:
   drop_params: true

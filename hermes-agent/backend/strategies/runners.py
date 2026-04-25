@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from backend.strategies.delta_neutral_carry import DeltaNeutralCarryBotRunner
 from backend.strategies.breakout import score_breakout
 from backend.strategies.mean_reversion import score_mean_reversion
 from backend.strategies.momentum import score_momentum
@@ -218,6 +219,7 @@ BOT_RUNNER_REGISTRY: dict[str, type[StrategyBotRunner]] = {
     "momentum": MomentumBotRunner,
     "mean_reversion": MeanReversionBotRunner,
     "breakout": BreakoutBotRunner,
+    "delta_neutral_carry": DeltaNeutralCarryBotRunner,
 }
 """Named registry of built-in bot runners.
 

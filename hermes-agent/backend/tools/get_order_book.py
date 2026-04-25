@@ -1,27 +1,78 @@
-"""get_order_book — Level-2 order book depth, spread, and imbalance via Binance public API."""
+"""get_order_book — Level-2 order book depth across public derivatives venues."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from backend.integrations.derivatives.bitmart_public_client import BitMartPublicClient
-from backend.tools._helpers import envelope, provider_ok, run_tool, validate
+from backend.integrations.derivatives.public_data import (
+    aggregate_order_book_snapshots,
+    fetch_order_book_snapshots,
+    resolve_requested_venues,
+)
+from backend.tools._helpers import envelope, provider_error, provider_ok, run_tool, validate
 
 
 class GetOrderBookInput(BaseModel):
     symbol: str
     limit: int = Field(default=20, ge=5, le=100)
+    venue: str | list[str] | None = Field(
+        default=None,
+        description="Venue id, comma-separated venue list, list of venues, or 'all'. Defaults to bitmart.",
+    )
+
+    @field_validator("venue")
+    @classmethod
+    def _validate_venue(cls, value: str | list[str] | None) -> str | list[str] | None:
+        if value is not None:
+            resolve_requested_venues(value)
+        return value
 
 
 def get_order_book(payload: dict) -> dict:
     def _run() -> dict:
         args = validate(GetOrderBookInput, payload)
-        client = BitMartPublicClient()
-        snapshot = client.get_order_book(args.symbol, limit=args.limit)
+        venues = resolve_requested_venues(args.venue)
+        snapshots, errors = fetch_order_book_snapshots(
+            symbol=args.symbol,
+            venues=venues,
+            limit=args.limit,
+        )
+
+        providers = [
+            provider_ok(client.provider.name, detail=f"venue={venue}")
+            for venue, client, _snapshot in snapshots
+        ]
+        providers.extend(
+            provider_error(provider_name, f"venue={venue}: {exc}")
+            for venue, provider_name, exc in errors
+        )
+        warnings = [f"{venue}: {exc}" for venue, _provider_name, exc in errors]
+
+        if not snapshots:
+            return envelope(
+                "get_order_book",
+                providers,
+                {
+                    "error": "provider_failure",
+                    "detail": "No order-book venues returned data.",
+                    "requested_venues": venues,
+                },
+                warnings=warnings,
+                ok=False,
+            )
+
+        if len(venues) == 1:
+            data = snapshots[0][2].model_dump(mode="json")
+            data["venue"] = snapshots[0][0]
+        else:
+            data = aggregate_order_book_snapshots(snapshots, limit=args.limit)
+
         return envelope(
             "get_order_book",
-            [provider_ok(client.provider.name)],
-            snapshot.model_dump(mode="json"),
+            providers,
+            data,
+            warnings=warnings,
+            ok=True,
         )
 
     return run_tool("get_order_book", _run)

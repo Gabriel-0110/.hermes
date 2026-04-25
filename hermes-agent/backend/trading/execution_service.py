@@ -11,7 +11,7 @@ from .lifecycle_notifications import (
     notify_proposal_blocked,
     notify_proposal_created,
 )
-from .models import ExecutionDispatchResult, ExecutionRequest, TradeProposal
+from .models import ExecutionDispatchResult, ExecutionRequest, ExecutionRequestLeg, TradeProposal
 from .policy_engine import evaluate_trade_proposal, normalize_trade_proposal
 
 
@@ -41,8 +41,11 @@ def dispatch_trade_proposal(proposal: TradeProposal) -> ExecutionDispatchResult:
         metadata={"proposal_id": proposal.proposal_id},
     )
 
+    scale = _proposal_size_scale(proposal, approved_size_usd=decision.approved_size_usd)
+
     request = ExecutionRequest(
         proposal_id=proposal.proposal_id,
+        execution_style=proposal.execution_style,
         symbol=proposal.symbol,
         side=proposal.side,
         order_type=proposal.order_type,
@@ -58,6 +61,7 @@ def dispatch_trade_proposal(proposal: TradeProposal) -> ExecutionDispatchResult:
         source_agent=proposal.source_agent,
         policy_trace=decision.policy_trace,
         stop_guidance=decision.stop_guidance,
+        legs=_request_legs_from_proposal(proposal, scale=scale),
         metadata=proposal.metadata,
     )
 
@@ -144,3 +148,39 @@ def dispatch_trade_proposal(proposal: TradeProposal) -> ExecutionDispatchResult:
         dispatch_payload=request,
         warnings=decision.warnings,
     )
+
+
+def _proposal_size_scale(proposal: TradeProposal, *, approved_size_usd: float | None) -> float:
+    if approved_size_usd is None or proposal.requested_size_usd <= 0:
+        return 1.0
+    return max(min(float(approved_size_usd) / float(proposal.requested_size_usd), 1.0), 0.0)
+
+
+def _request_legs_from_proposal(
+    proposal: TradeProposal,
+    *,
+    scale: float,
+) -> list[ExecutionRequestLeg]:
+    if not proposal.legs:
+        return []
+
+    legs: list[ExecutionRequestLeg] = []
+    for idx, leg in enumerate(proposal.legs, start=1):
+        legs.append(
+            ExecutionRequestLeg(
+                leg_id=leg.leg_id,
+                symbol=leg.symbol,
+                side=leg.side,
+                order_type=leg.order_type,
+                size_usd=leg.requested_size_usd * scale,
+                amount=leg.amount * scale if leg.amount is not None else None,
+                price=leg.limit_price,
+                client_order_id=f"{proposal.proposal_id}-leg-{idx}",
+                venue=leg.venue,
+                account_type=leg.account_type,
+                reduce_only=leg.reduce_only,
+                position_side=leg.position_side,
+                metadata=leg.metadata,
+            )
+        )
+    return legs

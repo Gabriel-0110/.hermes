@@ -22,6 +22,7 @@ def _new_id(prefix: str) -> str:
 
 
 class ReplaySourceType(StrEnum):
+    BACKTEST_CLI = "backtest_cli"
     TRADINGVIEW_ALERT = "tradingview_alert"
 
 

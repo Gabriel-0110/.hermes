@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from backend.integrations.base import BaseIntegrationClient
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
-from backend.models import MarketOverview, PriceQuote
+from backend.models import MarketOverview, OHLCVBar, PriceQuote
+
+
+_SYMBOL_TO_COINGECKO_ID = {
+    "ADA": "cardano",
+    "AVAX": "avalanche-2",
+    "BNB": "binancecoin",
+    "BTC": "bitcoin",
+    "DOGE": "dogecoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "XRP": "ripple",
+}
 
 
 class CoinGeckoClient(BaseIntegrationClient):
@@ -53,4 +67,54 @@ class CoinGeckoClient(BaseIntegrationClient):
             total_volume_24h=(data.get("total_volume") or {}).get("usd"),
             narrative_summary="Global crypto market snapshot normalized from CoinGecko.",
         )
+
+    def get_ohlcv_range(
+        self,
+        symbol: str,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[OHLCVBar]:
+        coin_id = _coingecko_id_for_symbol(symbol)
+        payload = self.request(
+            "GET",
+            f"/coins/{coin_id}/market_chart/range",
+            params={
+                "vs_currency": "usd",
+                "from": int(start_at.astimezone(timezone.utc).timestamp()),
+                "to": int(end_at.astimezone(timezone.utc).timestamp()),
+            },
+        )
+        prices = payload.get("prices") or []
+        volumes = payload.get("total_volumes") or []
+        volume_map = {
+            int(point[0]): float(point[1])
+            for point in volumes
+            if isinstance(point, list | tuple) and len(point) >= 2
+        }
+
+        bars: list[OHLCVBar] = []
+        previous_close: float | None = None
+        for point in prices:
+            if not isinstance(point, list | tuple) or len(point) < 2:
+                continue
+            ts_ms = int(point[0])
+            close = float(point[1])
+            open_price = previous_close if previous_close is not None else close
+            bars.append(
+                OHLCVBar(
+                    timestamp=datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat(),
+                    open=open_price,
+                    high=max(open_price, close),
+                    low=min(open_price, close),
+                    close=close,
+                    volume=volume_map.get(ts_ms),
+                )
+            )
+            previous_close = close
+        return bars
+
+
+def _coingecko_id_for_symbol(symbol: str) -> str:
+    clean = str(symbol or "").upper().replace("/USD", "").replace("/USDT", "")
+    return _SYMBOL_TO_COINGECKO_ID.get(clean, clean.lower())
 

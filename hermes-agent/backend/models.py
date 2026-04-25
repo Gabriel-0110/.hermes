@@ -445,6 +445,7 @@ class NormalizedResponse(BaseModel):
 class OrderBookLevel(BaseModel):
     price: float
     amount: float
+    exchange: str | None = None
 
 
 class OrderBookSnapshot(BaseModel):
@@ -468,6 +469,7 @@ class OrderBookSnapshot(BaseModel):
 
 class FundingRateEntry(BaseModel):
     symbol: str
+    exchange: str | None = None
     funding_rate: float | None = None
     funding_time: str | None = None
     mark_price: float | None = None
@@ -479,7 +481,7 @@ class FundingRateEntry(BaseModel):
 class FundingRatesSnapshot(BaseModel):
     symbols: list[FundingRateEntry] = Field(default_factory=list)
     as_of: str | None = None
-    source: str = "binance_futures_public"
+    source: str = "derivatives_public"
 
 
 class LiquidationEntry(BaseModel):
@@ -543,6 +545,7 @@ class RiskState(BaseModel):
     max_position_usd: float | None = None
     max_daily_loss_usd: float | None = None
     drawdown_limit_pct: float = 10.0
+    carry_trade_max_equity_pct: float = 30.0
     current_equity_usd: float | None = None
     peak_equity_usd: float | None = None
     current_drawdown_pct: float | None = None

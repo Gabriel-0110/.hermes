@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.strategies.funding import apply_funding_rate_modifier
+from backend.strategies.performance_priors import scale_confidence_by_prior
 from backend.strategies.registry import ScoredCandidate, STRATEGY_REGISTRY
 
 
@@ -109,6 +110,11 @@ def score_momentum(
     )
 
     confidence = round(min(max(score, 0.01), 0.95), 2)
+    confidence, prior = scale_confidence_by_prior(_STRATEGY.name, confidence)
+    if prior.resolved_count and abs(prior.multiplier - 1.0) >= 0.02:
+        reasons.append(
+            f"Strategy prior adjusted confidence x{prior.multiplier:.2f} from {prior.resolved_count} resolved signals"
+        )
 
     if score >= 0.35:
         direction = "long"

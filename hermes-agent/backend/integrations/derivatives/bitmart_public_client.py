@@ -140,6 +140,7 @@ class BitMartPublicClient:
         return FundingRatesSnapshot(
             symbols=entries,
             as_of=datetime.now(timezone.utc).isoformat(),
+            source="bitmart_futures_public",
         )
 
     @_retry_http()
@@ -156,6 +157,7 @@ class BitMartPublicClient:
         d = response.json().get("data", {})
         return FundingRateEntry(
             symbol=symbol,
+            exchange="BITMART",
             funding_rate=_safe_float(d.get("rate_value")),
             mark_price=None,  # not in this endpoint
             index_price=None,
@@ -182,6 +184,7 @@ class BitMartPublicClient:
         return [
             FundingRateEntry(
                 symbol=str(c.get("symbol", "")),
+                exchange="BITMART",
                 funding_rate=_safe_float(c.get("funding_rate")),
                 mark_price=_safe_float(c.get("last_price")),
                 index_price=_safe_float(c.get("index_price")),

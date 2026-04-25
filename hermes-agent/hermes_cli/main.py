@@ -5,6 +5,7 @@ Hermes CLI - Main entry point.
 Usage:
     hermes                     # Interactive chat (default)
     hermes chat                # Interactive chat
+    hermes backtest            # Historical scorer replay and metrics
     hermes gateway             # Run gateway in foreground
     hermes gateway start       # Start gateway as service
     hermes gateway stop        # Stop gateway service
@@ -791,6 +792,41 @@ def cmd_chat(args):
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
+def _parse_symbol_args(values: list[str]) -> list[str]:
+    symbols: list[str] = []
+    for value in values:
+        for part in str(value or "").split(","):
+            normalized = part.strip().upper()
+            if normalized and normalized not in symbols:
+                symbols.append(normalized)
+    return symbols
+
+
+def cmd_backtest(args):
+    """Run a historical scorer replay and persist the replay run."""
+    from backend.evaluation import format_backtest_report, run_strategy_backtest
+
+    symbols = _parse_symbol_args(args.symbols)
+    if not symbols:
+        print("Error: at least one symbol is required.")
+        sys.exit(1)
+
+    try:
+        summary = run_strategy_backtest(
+            strategy_name=args.strategy,
+            from_iso=args.from_iso,
+            to_iso=args.to_iso,
+            symbols=symbols,
+            timeframe=args.timeframe,
+            initial_capital=args.initial_capital,
+        )
+    except Exception as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    print(format_backtest_report(summary))
 
 
 def cmd_gateway(args):
@@ -4499,6 +4535,7 @@ def main():
 Examples:
     hermes                        Start interactive chat
     hermes chat -q "Hello"        Single query mode
+    hermes backtest momentum --from 2026-01-01T00:00:00Z --to 2026-02-01T00:00:00Z --symbols BTC ETH
     hermes -c                     Resume the most recent session
     hermes -c "my project"        Resume a session by name (latest in lineage)
     hermes --resume <session_id>  Resume a specific session by ID
@@ -4676,6 +4713,36 @@ For more help on a command:
         help="Session source tag for filtering (default: cli). Use 'tool' for third-party integrations that should not appear in user session lists."
     )
     chat_parser.set_defaults(func=cmd_chat)
+
+    # =========================================================================
+    # backtest command
+    # =========================================================================
+    backtest_parser = subparsers.add_parser(
+        "backtest",
+        help="Replay a strategy scorer across historical OHLCV",
+        description="Run a deterministic historical backtest for a scorer-based strategy and persist the replay run",
+    )
+    backtest_parser.add_argument("strategy", help="Strategy name (e.g. momentum, mean_reversion, breakout)")
+    backtest_parser.add_argument("--from", dest="from_iso", required=True, help="Inclusive ISO-8601 start timestamp")
+    backtest_parser.add_argument("--to", dest="to_iso", required=True, help="Inclusive ISO-8601 end timestamp")
+    backtest_parser.add_argument(
+        "--symbols",
+        nargs="+",
+        required=True,
+        help="One or more symbols (space- or comma-separated), e.g. BTC ETH SOL",
+    )
+    backtest_parser.add_argument(
+        "--timeframe",
+        default=None,
+        help="Optional candle timeframe override (defaults to the strategy's live cadence)",
+    )
+    backtest_parser.add_argument(
+        "--initial-capital",
+        type=float,
+        default=10_000.0,
+        help="Initial equity used for drawdown tracking (default: 10000)",
+    )
+    backtest_parser.set_defaults(func=cmd_backtest)
 
     # =========================================================================
     # model command

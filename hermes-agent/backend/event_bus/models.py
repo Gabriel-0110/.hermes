@@ -12,6 +12,8 @@ from .schema import DEFAULT_TRADING_STREAM, SCHEMA_VERSION, new_event_id, normal
 TradingEventType = Literal[
     "tradingview_alert_received",
     "tradingview_signal_ready",
+    "funding_spread_detected",
+    "whale_flow",
     "strategy_candidate_created",
     "risk_review_requested",
     "risk_review_completed",

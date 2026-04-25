@@ -20,6 +20,9 @@ _LIMITS_KEY = "hermes:risk:limits"
 class GetRiskApprovalInput(BaseModel):
     symbol: str
     proposed_size_usd: float
+    strategy_id: str | None = None
+    strategy_template_id: str | None = None
+    metadata: dict | None = None
 
 
 def get_risk_approval(payload: dict) -> dict:
@@ -47,6 +50,7 @@ def get_risk_approval(payload: dict) -> dict:
         # --- Load risk limits ---
         max_position_usd: float | None = None
         drawdown_limit_pct: float = 10.0
+        carry_trade_max_equity_pct: float = 30.0
         try:
             redis = get_redis_client()
             limits_raw = redis.get(_LIMITS_KEY)
@@ -54,6 +58,7 @@ def get_risk_approval(payload: dict) -> dict:
                 limits = json.loads(limits_raw)
                 max_position_usd = limits.get("max_position_usd")
                 drawdown_limit_pct = float(limits.get("drawdown_limit_pct", 10.0))
+            carry_trade_max_equity_pct = float(limits.get("carry_trade_max_equity_pct", 30.0))
         except Exception as exc:
             logger.warning("get_risk_approval: limits read failed: %s", exc)
 
@@ -75,10 +80,31 @@ def get_risk_approval(payload: dict) -> dict:
             if args.proposed_size_usd > max_position_usd:
                 reasons.append(f"proposed_size capped at max_position_usd={max_position_usd}")
 
+        if _is_carry_trade(args):
+            try:
+                from backend.tools.get_portfolio_state import get_portfolio_state
+
+                portfolio = get_portfolio_state({})
+                current_equity = portfolio.get("data", {}).get("total_equity_usd")
+                if current_equity is not None:
+                    carry_cap_usd = float(current_equity) * (carry_trade_max_equity_pct / 100.0)
+                    effective_max = min(effective_max, carry_cap_usd)
+                    reasons.append(
+                        f"carry_trade capped at {carry_trade_max_equity_pct:.1f}% of equity "
+                        f"(cap_usd={carry_cap_usd:.2f})"
+                    )
+                    if args.proposed_size_usd > carry_cap_usd:
+                        reasons.append(
+                            f"proposed carry allocation resized from {args.proposed_size_usd:.2f} to {carry_cap_usd:.2f}"
+                        )
+            except Exception as exc:
+                logger.warning("get_risk_approval: carry cap evaluation failed: %s", exc)
+                reasons.append("carry_trade_cap_evaluation_failed")
+
         size_multiplier = 0.5 if severity == "medium" else 1.0
         approved_size = effective_max * size_multiplier
 
-        approved = realized_vol < 0.08 and severity != "high"
+        approved = realized_vol < 0.08 and severity != "high" and approved_size > 0
 
         approval = RiskApproval(
             approved=approved,
@@ -91,4 +117,16 @@ def get_risk_approval(payload: dict) -> dict:
         return envelope("get_risk_approval", providers, approval.model_dump(mode="json"))
 
     return run_tool("get_risk_approval", _run)
+
+
+def _is_carry_trade(args: GetRiskApprovalInput) -> bool:
+    metadata = args.metadata if isinstance(args.metadata, dict) else {}
+    if metadata.get("carry_trade") is True:
+        return True
+
+    for value in (args.strategy_id, args.strategy_template_id):
+        normalized = str(value or "").strip().lower()
+        if "carry" in normalized:
+            return True
+    return False
 

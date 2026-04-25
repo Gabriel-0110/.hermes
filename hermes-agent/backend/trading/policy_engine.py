@@ -61,7 +61,13 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
         trace.append("live_trading_unlock=ok")
 
     risk_response = get_risk_approval(
-        {"symbol": proposal.symbol, "proposed_size_usd": proposal.requested_size_usd}
+        {
+            "symbol": proposal.symbol,
+            "proposed_size_usd": proposal.requested_size_usd,
+            "strategy_id": proposal.strategy_id,
+            "strategy_template_id": proposal.strategy_template_id,
+            "metadata": proposal.metadata,
+        }
     )
     risk_payload = risk_response.get("data") or {}
     risk_reasons = list(risk_payload.get("reasons") or [])

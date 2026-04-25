@@ -111,6 +111,10 @@ class TradingViewIngestionService:
                             "symbol": alert.symbol,
                             "signal": alert.signal,
                             "direction": alert.direction,
+                            "alert_name": alert.alert_name,
+                            "strategy": alert.strategy,
+                            "timeframe": alert.timeframe,
+                            "price": alert.price,
                             "correlation_id": correlation_id,
                             "event_id": event_id,
                         },
@@ -190,8 +194,10 @@ class TradingViewIngestionService:
                         "symbol": alert.symbol,
                         "signal": alert.signal,
                         "direction": alert.direction,
+                        "alert_name": alert.alert_name,
                         "strategy": alert.strategy,
                         "timeframe": alert.timeframe,
+                        "price": alert.price,
                     },
                 )
             )

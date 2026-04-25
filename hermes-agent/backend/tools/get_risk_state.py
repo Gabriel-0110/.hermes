@@ -41,6 +41,7 @@ def get_risk_state(_: dict | None = None) -> dict:
         max_position_usd: float | None = None
         max_daily_loss_usd: float | None = None
         drawdown_limit_pct: float = 10.0
+        carry_trade_max_equity_pct: float = 30.0
         try:
             limits_raw = redis.get(_LIMITS_KEY)
             if limits_raw:
@@ -48,6 +49,7 @@ def get_risk_state(_: dict | None = None) -> dict:
                 max_position_usd = limits.get("max_position_usd")
                 max_daily_loss_usd = limits.get("max_daily_loss_usd")
                 drawdown_limit_pct = float(limits.get("drawdown_limit_pct", 10.0))
+            carry_trade_max_equity_pct = float(limits.get("carry_trade_max_equity_pct", 30.0))
         except Exception as exc:
             logger.warning("Failed to read risk limits from Redis: %s", exc)
             warnings.append("limits_read_failed")
@@ -86,6 +88,7 @@ def get_risk_state(_: dict | None = None) -> dict:
             max_position_usd=max_position_usd,
             max_daily_loss_usd=max_daily_loss_usd,
             drawdown_limit_pct=drawdown_limit_pct,
+            carry_trade_max_equity_pct=carry_trade_max_equity_pct,
             current_equity_usd=current_equity_usd,
             peak_equity_usd=peak_equity_usd,
             current_drawdown_pct=current_drawdown_pct,

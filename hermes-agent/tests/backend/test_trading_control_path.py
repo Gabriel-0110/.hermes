@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from backend.event_bus.models import TradingEvent, TradingEventEnvelope
-from backend.trading import dispatch_trade_proposal, normalize_trade_proposal
-from backend.trading.models import ExecutionRequest, PolicyDecision, RiskRejectionReason
+from backend.trading import dispatch_trade_proposal, normalize_trade_proposal, paired_proposal_from_legs
+from backend.trading.models import ExecutionRequest, PolicyDecision, RiskRejectionReason, TradeProposalLeg
 from backend.trading.policy_engine import evaluate_trade_proposal
 
 
@@ -132,6 +133,73 @@ def test_dispatch_records_manual_review_when_approval_required(monkeypatch) -> N
     request = ExecutionRequest.model_validate(published[0].payload)
     assert request.request_id == result.dispatch_payload.request_id
     assert decisions == [("risk_manager", "manual_review")]
+
+
+def test_dispatch_preserves_paired_execution_legs(monkeypatch) -> None:
+    published: list[TradingEvent] = []
+
+    monkeypatch.setattr(
+        "backend.trading.execution_service.publish_trading_event",
+        lambda event: published.append(event),
+    )
+    monkeypatch.setattr(
+        "backend.trading.execution_service.get_observability_service",
+        lambda: SimpleNamespace(
+            record_agent_decision=lambda **kwargs: None,
+            record_execution_event=lambda **kwargs: None,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.trading.execution_service.evaluate_trade_proposal",
+        lambda proposal: PolicyDecision(
+            proposal_id=proposal.proposal_id,
+            status="approved",
+            execution_mode="paper",
+            approved=True,
+            approved_size_usd=proposal.requested_size_usd,
+            requires_operator_approval=False,
+            policy_trace=["approval=not_required"],
+            rejection_reasons=[],
+        ),
+    )
+
+    proposal = paired_proposal_from_legs(
+        symbol="ETHUSDT",
+        source_agent="delta_neutral_carry_bot",
+        requested_size_usd=200.0,
+        rationale="Pair spot long with perp short to capture negative funding.",
+        strategy_id="delta_neutral_carry/v1.0",
+        strategy_template_id="delta_neutral_carry",
+        legs=[
+            TradeProposalLeg(
+                symbol="ETH/USDT",
+                side="buy",
+                requested_size_usd=200.0,
+                amount=0.1,
+                account_type="spot",
+            ),
+            TradeProposalLeg(
+                symbol="ETHUSDT",
+                side="sell",
+                requested_size_usd=200.0,
+                amount=0.1,
+                account_type="swap",
+                position_side="short",
+            ),
+        ],
+        metadata={"carry_trade": True},
+    )
+
+    result = dispatch_trade_proposal(proposal)
+
+    assert result.status == "queued"
+    assert len(published) == 1
+    request = ExecutionRequest.model_validate(published[0].payload)
+    assert request.execution_style == "paired"
+    assert len(request.legs) == 2
+    assert request.legs[0].account_type == "spot"
+    assert request.legs[1].account_type == "swap"
+    assert request.legs[1].position_side == "short"
 
 
 def test_worker_routes_approval_required_requests_into_current_queue(monkeypatch) -> None:
@@ -388,3 +456,104 @@ def test_worker_records_distinct_live_execution_outcome(monkeypatch) -> None:
     assert recorded[0].result.status == "filled"
     assert recorded[0].result.execution_mode == "live"
     assert recorded[0].request.request_id == "exec_req_live"
+
+
+def test_worker_rolls_back_paired_execution_when_second_leg_fails(monkeypatch) -> None:
+    recorded: list[object] = []
+    call_log: list[tuple[str, str, str]] = []
+    from backend.event_bus.workers import _place_live_order
+
+    class FakeClient:
+        configured = True
+
+        def __init__(self, venue: str = "bitmart", *, account_type: str | None = None) -> None:
+            self.venue = venue
+            self.account_type = account_type or "spot"
+
+        def place_order(self, **kwargs):
+            call_log.append((self.account_type, kwargs["symbol"], kwargs["side"]))
+            if self.account_type == "swap" and kwargs["side"] == "sell":
+                raise RuntimeError("swap leg failed")
+            return SimpleNamespace(
+                order_id=f"ord-{self.account_type}-{kwargs['side']}",
+                symbol=kwargs["symbol"],
+                side=kwargs["side"],
+                order_type=kwargs["order_type"],
+                amount=kwargs["amount"],
+                status="filled",
+                reduce_only=kwargs.get("reduce_only"),
+                model_dump=lambda mode="json", kwargs=kwargs, self=self: {
+                    "order_id": f"ord-{self.account_type}-{kwargs['side']}",
+                    "exchange": "BITMART",
+                    "symbol": kwargs["symbol"],
+                    "side": kwargs["side"],
+                    "order_type": kwargs["order_type"],
+                    "status": "filled",
+                    "amount": kwargs["amount"],
+                    "reduce_only": kwargs.get("reduce_only"),
+                },
+            )
+
+    import backend.integrations.execution as execution_module
+
+    monkeypatch.setattr(execution_module, "VenueExecutionClient", FakeClient)
+    monkeypatch.setattr(
+        "backend.event_bus.workers._record_execution_event",
+        lambda event, outcome: recorded.append(outcome),
+    )
+
+    envelope = TradingEventEnvelope(
+        event=TradingEvent(
+            event_id="evt-paired-fail",
+            event_type="execution_requested",
+            symbol="ETHUSDT",
+            correlation_id="corr-paired-fail",
+            workflow_id="wf-paired-fail",
+            payload={
+                "proposal_id": "proposal-paired-fail",
+                "request_id": "exec_req_paired_fail",
+                "execution_style": "paired",
+                "symbol": "ETHUSDT",
+                "side": "buy",
+                "order_type": "market",
+                "size_usd": 200.0,
+                "amount": 200.0,
+                "legs": [
+                    {
+                        "leg_id": "leg-spot",
+                        "symbol": "ETH/USDT",
+                        "side": "buy",
+                        "order_type": "market",
+                        "size_usd": 200.0,
+                        "amount": 0.1,
+                        "client_order_id": "spot-leg-1",
+                        "account_type": "spot",
+                        "venue": "bitmart",
+                    },
+                    {
+                        "leg_id": "leg-perp",
+                        "symbol": "ETHUSDT",
+                        "side": "sell",
+                        "order_type": "market",
+                        "size_usd": 200.0,
+                        "amount": 0.1,
+                        "client_order_id": "perp-leg-1",
+                        "account_type": "swap",
+                        "venue": "bitmart",
+                        "position_side": "short",
+                    },
+                ],
+                "metadata": {"carry_trade": True},
+            },
+        )
+    )
+
+    handled = _place_live_order(envelope)
+
+    assert handled is True
+    assert len(recorded) == 1
+    assert recorded[0].result.status == "failed"
+    rollback = recorded[0].result.payload["rollback"]
+    assert rollback[0]["rolled_back"] is True
+    assert ("spot", "ETH/USDT", "buy") in call_log
+    assert ("spot", "ETH/USDT", "sell") in call_log

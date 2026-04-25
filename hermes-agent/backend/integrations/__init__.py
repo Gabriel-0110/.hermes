@@ -8,6 +8,7 @@ from backend.integrations.market_data.twelvedata_client import TwelveDataClient
 from backend.integrations.news_sentiment.cryptopanic_client import CryptoPanicClient
 from backend.integrations.news_sentiment.newsapi_client import NewsApiClient
 from backend.integrations.news_sentiment.lunarcrush_client import LunarCrushClient
+from backend.integrations.onchain.bitmart_wallet_client import BitMartWalletAIClient
 from backend.integrations.onchain.etherscan_client import EtherscanClient
 from backend.integrations.onchain.nansen_client import NansenClient
 from backend.integrations.defi.defillama_client import DefiLlamaClient, DefiLlamaEndpointUnavailableError
@@ -25,6 +26,7 @@ __all__ = [
     "CryptoPanicClient",
     "NewsApiClient",
     "LunarCrushClient",
+    "BitMartWalletAIClient",
     "EtherscanClient",
     "NansenClient",
     "DefiLlamaClient",

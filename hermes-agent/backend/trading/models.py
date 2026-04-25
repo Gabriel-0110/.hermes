@@ -24,6 +24,73 @@ def _new_execution_request_id() -> str:
     return f"exec_req_{uuid4().hex[:16]}"
 
 
+def _new_leg_id() -> str:
+    return f"leg_{uuid4().hex[:12]}"
+
+
+class TradeProposalLeg(BaseModel):
+    """Single execution leg contained within a paired proposal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    leg_id: str = Field(default_factory=_new_leg_id)
+    symbol: str = Field(min_length=3, max_length=32)
+    side: Literal["buy", "sell"]
+    order_type: Literal["market", "limit"] = "market"
+    requested_size_usd: float = Field(gt=0)
+    amount: float | None = Field(default=None, gt=0)
+    limit_price: float | None = Field(default=None, gt=0)
+    venue: str = Field(default="bitmart", min_length=2, max_length=32)
+    account_type: Literal["spot", "swap", "futures", "contract"] = "spot"
+    reduce_only: bool = False
+    position_side: Literal["long", "short"] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("symbol")
+    @classmethod
+    def _normalize_symbol(cls, value: str) -> str:
+        return value.upper()
+
+    @model_validator(mode="after")
+    def _validate_leg(self) -> "TradeProposalLeg":
+        if self.order_type == "limit" and self.limit_price is None:
+            raise ValueError("limit_price is required for limit legs")
+        return self
+
+
+class ExecutionRequestLeg(BaseModel):
+    """Single execution leg carried through the execution worker."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    leg_id: str = Field(default_factory=_new_leg_id)
+    symbol: str = Field(min_length=3, max_length=32)
+    side: Literal["buy", "sell"]
+    order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
+    size_usd: float | None = Field(default=None, ge=0)
+    amount: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, gt=0)
+    client_order_id: str | None = Field(default=None, min_length=1, max_length=64)
+    venue: str = Field(default="bitmart", min_length=2, max_length=32)
+    account_type: Literal["spot", "swap", "futures", "contract"] = "spot"
+    reduce_only: bool = False
+    position_side: Literal["long", "short"] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("symbol")
+    @classmethod
+    def _normalize_symbol(cls, value: str) -> str:
+        return value.upper()
+
+    @model_validator(mode="after")
+    def _validate_leg(self) -> "ExecutionRequestLeg":
+        if self.order_type in {"limit", "stop", "stop_limit"} and self.price is None:
+            raise ValueError("price is required for limit and stop-style execution legs")
+        if self.amount is None and self.size_usd is None:
+            raise ValueError("each execution leg must define amount or size_usd")
+        return self
+
+
 class TradeProposal(BaseModel):
     """A bounded execution proposal created by an agent or operator."""
 
@@ -32,6 +99,7 @@ class TradeProposal(BaseModel):
     proposal_id: str = Field(default_factory=_new_proposal_id)
     created_at: str = Field(default_factory=_utcnow_iso)
     source_agent: str = Field(default="orchestrator_trader", min_length=2, max_length=120)
+    execution_style: Literal["single", "paired"] = "single"
     symbol: str = Field(min_length=3, max_length=32)
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit"] = "market"
@@ -44,12 +112,21 @@ class TradeProposal(BaseModel):
     stop_loss_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
     require_operator_approval: bool | None = None
+    legs: list[TradeProposalLeg] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("symbol")
     @classmethod
     def _normalize_symbol(cls, value: str) -> str:
         return value.upper()
+
+    @model_validator(mode="after")
+    def _validate_execution_style(self) -> "TradeProposal":
+        if self.legs and self.execution_style == "single":
+            self.execution_style = "paired"
+        if self.execution_style == "paired" and len(self.legs) < 2:
+            raise ValueError("paired trade proposals must include at least two legs")
+        return self
 
 
 class RiskRejectionReason(StrEnum):
@@ -105,6 +182,7 @@ class ExecutionRequest(BaseModel):
 
     request_id: str = Field(default_factory=_new_execution_request_id, max_length=64)
     proposal_id: str | None = None
+    execution_style: Literal["single", "paired"] = "single"
     symbol: str = Field(min_length=3, max_length=32)
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit", "stop", "stop_limit"] = "market"
@@ -126,6 +204,7 @@ class ExecutionRequest(BaseModel):
     approval_id: str | None = Field(default=None, max_length=64)
     approved_by: str | None = Field(default=None, max_length=120)
     idempotency_key: str | None = Field(default=None, max_length=160)
+    legs: list[ExecutionRequestLeg] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("symbol")
@@ -135,6 +214,10 @@ class ExecutionRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_request(self) -> "ExecutionRequest":
+        if self.legs and self.execution_style == "single":
+            self.execution_style = "paired"
+        if self.execution_style == "paired" and len(self.legs) < 2:
+            raise ValueError("paired execution requests must include at least two legs")
         if self.order_type in {"limit", "stop", "stop_limit"} and self.price is None:
             raise ValueError("price is required for limit and stop-style orders")
         if self.amount is None and self.size_usd is None:
@@ -150,6 +233,12 @@ class ExecutionRequest(BaseModel):
                 "reduce-only" if self.reduce_only else "",
                 self.position_side or "",
             ]
+            if self.legs:
+                stable_parts.append("paired")
+                stable_parts.extend(
+                    f"{leg.venue}:{leg.account_type}:{leg.symbol}:{leg.side}:{leg.order_type}"
+                    for leg in self.legs
+                )
             self.idempotency_key = ":".join(part for part in stable_parts if part)
         return self
 

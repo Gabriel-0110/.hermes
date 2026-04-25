@@ -160,15 +160,16 @@ _VENUE_DEFAULTS: dict[str, dict[str, Any]] = {
 class VenueExecutionClient:
     """Venue-aware backend execution adapter with BitMart as the default venue."""
 
-    def __init__(self, exchange_id: str = "bitmart") -> None:
+    def __init__(self, exchange_id: str = "bitmart", *, account_type: str | None = None) -> None:
         self.exchange_id = exchange_id.strip().lower() or "bitmart"
         self._settings = _VENUE_DEFAULTS.get(self.exchange_id, {})
         self._env_prefix = self.exchange_id.upper().replace("-", "_")
         self.provider = self._build_provider_profile()
-        self.account_type = os.getenv(
+        configured_account_type = account_type or os.getenv(
             f"{self._env_prefix}_ACCOUNT_TYPE",
             self._settings.get("default_account_type", "spot"),
-        ).strip() or self._settings.get("default_account_type", "spot")
+        )
+        self.account_type = configured_account_type.strip() or self._settings.get("default_account_type", "spot")
         self._api_key = os.getenv(f"{self._env_prefix}_API_KEY", "").strip()
         self._secret = os.getenv(f"{self._env_prefix}_SECRET", "").strip()
         self._memo = os.getenv(f"{self._env_prefix}_MEMO", "").strip()

@@ -1,8 +1,11 @@
 model_list:
   - model_name: orchestrator-default
     litellm_params:
-      model: openai/gpt-5.5
-      api_key: os.environ/OPENAI_API_KEY_1
+      model: lm_studio/qwen/qwen3.5-9b
+      api_base: http://host.docker.internal:1234/v1
+      api_key: os.environ/LM_STUDIO_API_KEY
+      request_timeout: 300
+      context_window: 65536
 
   - model_name: orchestrator-fallback-1
     litellm_params:
@@ -39,7 +42,7 @@ model_list:
 
   - model_name: portfolio-fallback-1
     litellm_params:
-      model: lm_studio/google/gemma-4-e4b
+      model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
       request_timeout: 300
@@ -70,7 +73,7 @@ model_list:
 
   - model_name: strategy-default
     litellm_params:
-      model: lm_studio/google/gemma-4-e4b
+      model: lm_studio/qwen/qwen3.5-9b
       api_base: http://host.docker.internal:1234/v1
       api_key: os.environ/LM_STUDIO_API_KEY
       request_timeout: 300

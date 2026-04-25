@@ -70,6 +70,7 @@ cron/.tick.lock
 cron/jobs.json
 memories/
 skills/.hub/index-cache/
+reports/
 
 # Gateway / app state
 channel_directory.json

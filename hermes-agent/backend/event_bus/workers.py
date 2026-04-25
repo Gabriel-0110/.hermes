@@ -7,10 +7,11 @@ import json
 import logging
 import os
 import sys
+import time
 
 from backend.integrations.execution.normalization import execution_order_payload
 from .consumer import RedisStreamWorker
-from .models import TradingEventEnvelope
+from .models import TradingEvent, TradingEventEnvelope
 from backend.trading.lifecycle_notifications import (
     notify_approval_required,
     notify_kill_switch_blocked,
@@ -98,6 +99,9 @@ def orchestrator_handler(event: TradingEventEnvelope) -> bool:
     if ev.event_type == "tradingview_signal_ready":
         return _handle_signal_ready(event)
 
+    if ev.event_type == "whale_flow":
+        return _handle_whale_flow(event)
+
     if ev.event_type == "execution_requested":
         return _handle_execution_requested(event)
 
@@ -106,53 +110,423 @@ def orchestrator_handler(event: TradingEventEnvelope) -> bool:
     return True
 
 
-def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
-    """Run the trading workflow graph for a ready TradingView signal."""
-    ev = event.event
+def _tool_ok(response: dict | None) -> bool:
+    return bool((response or {}).get("meta", {}).get("ok"))
+
+
+def _tool_data(response: dict | None, default):
+    if not isinstance(response, dict):
+        return default
+    data = response.get("data")
+    return default if data is None else data
+
+
+def _normalize_signal_direction(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"buy", "bullish", "long"}:
+        return "long"
+    if normalized in {"sell", "bearish", "short"}:
+        return "short"
+    if normalized in {"close", "exit", "flat"}:
+        return "flat"
+    return normalized
+
+
+def _strategy_market_data_symbol(symbol: str) -> str:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return normalized
+    if "/" in normalized:
+        return normalized
+    for quote in ("USDT", "USDC", "USD", "BTC", "ETH"):
+        if normalized.endswith(quote) and len(normalized) > len(quote):
+            base = normalized[: -len(quote)]
+            return f"{base}/{quote}"
+    return f"{normalized}/USD"
+
+
+def _funding_symbol(symbol: str) -> str:
+    normalized = str(symbol or "").strip().upper().replace("/", "")
+    if not normalized:
+        return normalized
+    if normalized.endswith("USDT"):
+        return normalized
+    if normalized.endswith("USD"):
+        return normalized[:-3] + "USDT"
+    return f"{normalized}USDT"
+
+
+def _fetch_market_regime() -> str:
     try:
-        import asyncio
+        from backend.tools.get_market_overview import get_market_overview
 
-        from backend.workflows.graph import run_trading_workflow
-        from backend.workflows.models import TradingInputEvent
+        response = get_market_overview({})
+        if not _tool_ok(response):
+            return "unknown"
+        data = _tool_data(response, {})
+        if not isinstance(data, dict):
+            return "unknown"
+        return str(data.get("regime") or data.get("market_regime") or "unknown")
+    except Exception as exc:
+        logger.warning("signal_ready_worker: get_market_overview failed: %s", exc)
+        return "unknown"
 
-        input_event = TradingInputEvent(
-            event_id=ev.event_id,
-            event_type=ev.event_type,
-            symbol=ev.symbol or ev.payload.get("symbol") or "UNKNOWN",
-            alert_id=ev.alert_id,
-            correlation_id=ev.correlation_id or ev.event_id,
-            signal=ev.payload.get("signal"),
-            direction=ev.payload.get("direction"),
-            strategy=ev.payload.get("strategy"),
-            timeframe=ev.payload.get("timeframe"),
-            price=float(ev.payload["price"]) if ev.payload.get("price") is not None else None,
-            payload=ev.payload,
+
+def _fetch_indicator_data(symbol: str, timeframe: str) -> dict:
+    try:
+        from backend.tools.get_indicator_snapshot import get_indicator_snapshot
+
+        response = get_indicator_snapshot({"symbol": symbol, "interval": timeframe})
+        data = _tool_data(response, {})
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("signal_ready_worker: get_indicator_snapshot failed for %s: %s", symbol, exc)
+        return {}
+
+
+def _fetch_ohlcv_bars(symbol: str, timeframe: str) -> list[dict]:
+    try:
+        from backend.tools.get_ohlcv import get_ohlcv
+
+        response = get_ohlcv({"symbol": symbol, "interval": timeframe, "limit": 30})
+        data = _tool_data(response, [])
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning("signal_ready_worker: get_ohlcv failed for %s: %s", symbol, exc)
+        return []
+
+
+def _fetch_order_book_data(symbol: str) -> dict:
+    try:
+        from backend.tools.get_order_book import get_order_book
+
+        response = get_order_book({"symbol": symbol, "limit": 20})
+        data = _tool_data(response, {})
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("signal_ready_worker: get_order_book failed for %s: %s", symbol, exc)
+        return {}
+
+
+def _fetch_funding_data(symbol: str) -> dict:
+    try:
+        from backend.tools.get_funding_rates import get_funding_rates
+
+        response = get_funding_rates({"symbols": [_funding_symbol(symbol)], "limit": 1})
+        data = _tool_data(response, {})
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("signal_ready_worker: get_funding_rates failed for %s: %s", symbol, exc)
+        return {}
+
+
+def _default_size_usd_for_strategy(strategy_name: str) -> float:
+    try:
+        from backend.strategies.runners import BOT_RUNNER_REGISTRY
+
+        runner_cls = BOT_RUNNER_REGISTRY.get(strategy_name)
+        if runner_cls is not None:
+            return float(getattr(runner_cls, "default_size_usd", 50.0))
+    except Exception as exc:
+        logger.debug("signal_ready_worker: runner lookup failed for %s: %s", strategy_name, exc)
+    return 50.0
+
+
+def _score_tradingview_candidate(
+    *,
+    strategy_name: str,
+    symbol: str,
+    timeframe: str,
+):
+    from backend.strategies.registry import get_strategy_scorer
+
+    scorer = get_strategy_scorer(strategy_name)
+    regime = _fetch_market_regime()
+    indicator_data = _fetch_indicator_data(_strategy_market_data_symbol(symbol), timeframe)
+    funding_data = _fetch_funding_data(symbol)
+
+    if strategy_name == "momentum":
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
+    if strategy_name == "mean_reversion":
+        return scorer(symbol, indicator_data, regime=regime, funding_data=funding_data)
+    if strategy_name == "breakout":
+        return scorer(
+            symbol,
+            indicator_data,
+            ohlcv_bars=_fetch_ohlcv_bars(_strategy_market_data_symbol(symbol), timeframe),
+            order_book_data=_fetch_order_book_data(_funding_symbol(symbol)),
+            regime=regime,
+            funding_data=funding_data,
         )
 
-        logger.info(
-            "orchestrator_handler: launching trading workflow for symbol=%s signal=%s",
-            input_event.symbol,
-            input_event.signal,
+    raise ValueError(f"Unsupported strategy for TradingView signal scoring: {strategy_name}")
+
+
+def _handle_signal_ready(event: TradingEventEnvelope) -> bool:
+    """Score a TradingView signal and dispatch an execution proposal when actionable."""
+    ev = event.event
+    payload = ev.payload or {}
+    symbol = str(ev.symbol or payload.get("symbol") or "").strip().upper()
+    if not symbol:
+        logger.warning("signal_ready_worker: missing symbol for event_id=%s", ev.event_id)
+        return True
+
+    try:
+        from backend.observability.service import get_observability_service
+        from backend.strategies.registry import STRATEGY_REGISTRY, resolve_strategy_name
+        from backend.trading import dispatch_trade_proposal
+        from backend.trading.bot_runner import proposal_from_candidate
+
+        observability = get_observability_service()
+        strategy_name = resolve_strategy_name(
+            payload.get("strategy"),
+            payload.get("alert_name"),
+            payload.get("signal"),
+        )
+        if strategy_name is None:
+            logger.warning(
+                "signal_ready_worker: no registered strategy matched alert_id=%s strategy=%r alert_name=%r",
+                ev.alert_id,
+                payload.get("strategy"),
+                payload.get("alert_name"),
+            )
+            observability.record_execution_event(
+                status="ignored",
+                event_type="tradingview_signal_ignored",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={
+                    "reason": "unmatched_strategy",
+                    "alert_id": ev.alert_id,
+                    "strategy": payload.get("strategy"),
+                    "alert_name": payload.get("alert_name"),
+                },
+            )
+            return True
+
+        strategy_def = STRATEGY_REGISTRY[strategy_name]
+        timeframe = str(payload.get("timeframe") or strategy_def.timeframes[0] or "1h")
+        candidate = _score_tradingview_candidate(
+            strategy_name=strategy_name,
+            symbol=symbol,
+            timeframe=timeframe,
+        )
+        observability.record_agent_decision(
+            agent_name="strategy_agent",
+            status="completed",
+            decision=candidate.direction,
+            summarized_input={"event": ev.model_dump(mode="json")},
+            summarized_output={"candidate": candidate.model_dump(mode="json")},
+            metadata={"strategy_name": strategy_name, "alert_id": ev.alert_id},
         )
 
-        # Run the async workflow in a new event loop (worker runs synchronously)
-        result = asyncio.run(run_trading_workflow(input_event))
+        requested_direction = _normalize_signal_direction(payload.get("direction") or payload.get("signal"))
+        if requested_direction == "flat":
+            observability.record_execution_event(
+                status="ignored",
+                event_type="tradingview_signal_ignored",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={
+                    "reason": "flat_signal",
+                    "candidate": candidate.model_dump(mode="json"),
+                    "alert_id": ev.alert_id,
+                },
+            )
+            return True
+
+        if requested_direction in {"long", "short"} and candidate.direction != requested_direction:
+            logger.info(
+                "signal_ready_worker: scorer direction mismatch for alert_id=%s expected=%s actual=%s",
+                ev.alert_id,
+                requested_direction,
+                candidate.direction,
+            )
+            observability.record_execution_event(
+                status="ignored",
+                event_type="tradingview_signal_ignored",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={
+                    "reason": "direction_mismatch",
+                    "expected_direction": requested_direction,
+                    "candidate": candidate.model_dump(mode="json"),
+                    "alert_id": ev.alert_id,
+                },
+            )
+            return True
+
+        if candidate.direction == "watch" or candidate.confidence < strategy_def.min_confidence:
+            logger.info(
+                "signal_ready_worker: candidate filtered for alert_id=%s direction=%s confidence=%.2f",
+                ev.alert_id,
+                candidate.direction,
+                candidate.confidence,
+            )
+            observability.record_execution_event(
+                status="ignored",
+                event_type="tradingview_signal_filtered",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={
+                    "reason": "watch_or_low_confidence",
+                    "min_confidence": strategy_def.min_confidence,
+                    "candidate": candidate.model_dump(mode="json"),
+                    "alert_id": ev.alert_id,
+                },
+            )
+            return True
+
+        proposal = proposal_from_candidate(
+            candidate,
+            size_usd=_default_size_usd_for_strategy(strategy_name),
+            source_agent="tradingview_signal_worker",
+            strategy_id=f"tradingview/{strategy_name}",
+            timeframe=timeframe,
+            metadata={
+                "source_event_type": ev.event_type,
+                "source_alert_id": ev.alert_id,
+                "source_event_id": ev.event_id,
+                "source_correlation_id": ev.correlation_id,
+                "alert_name": payload.get("alert_name"),
+                "alert_strategy": payload.get("strategy"),
+                "signal": payload.get("signal"),
+                "direction": payload.get("direction"),
+                "price": payload.get("price"),
+            },
+        )
+        dispatch_result = dispatch_trade_proposal(proposal)
         logger.info(
-            "orchestrator_handler: workflow completed for symbol=%s outcome=%s",
-            input_event.symbol,
-            result,
+            "signal_ready_worker: dispatched proposal_id=%s strategy=%s symbol=%s status=%s",
+            proposal.proposal_id,
+            strategy_name,
+            symbol,
+            dispatch_result.status,
+        )
+        observability.record_execution_event(
+            status=dispatch_result.status,
+            event_type="tradingview_signal_dispatched",
+            symbol=symbol,
+            correlation_id=ev.correlation_id,
+            workflow_run_id=ev.workflow_id,
+            payload={
+                "alert_id": ev.alert_id,
+                "strategy_name": strategy_name,
+                "candidate": candidate.model_dump(mode="json"),
+                "proposal_id": proposal.proposal_id,
+                "dispatch_status": dispatch_result.status,
+            },
+        )
+        return True
+
+    except ValueError as exc:
+        logger.warning(
+            "signal_ready_worker: invalid tradingview signal event_id=%s symbol=%s: %s",
+            ev.event_id,
+            symbol,
+            exc,
         )
         return True
 
     except Exception as exc:
         logger.exception(
-            "orchestrator_handler: workflow failed for event_id=%s symbol=%s: %s",
+            "signal_ready_worker: failed for event_id=%s symbol=%s: %s",
             ev.event_id,
-            ev.symbol,
+            symbol,
             exc,
         )
-        # Return True (ack) to avoid infinite retries on a broken event.
+        return False
+
+
+def _handle_whale_flow(event: TradingEventEnvelope) -> bool:
+    """Convert a whale-flow event into a standard trade proposal when actionable."""
+    ev = event.event
+    payload = ev.payload or {}
+    symbol = str(ev.symbol or payload.get("symbol") or "").strip().upper()
+    if not symbol:
+        logger.warning("whale_flow_worker: missing symbol for event_id=%s", ev.event_id)
         return True
+
+    try:
+        from backend.observability.service import get_observability_service
+        from backend.strategies.registry import STRATEGY_REGISTRY
+        from backend.strategies.whale_follower import build_whale_follow_proposal, score_whale_follower
+        from backend.trading import dispatch_trade_proposal
+
+        observability = get_observability_service()
+        candidate = score_whale_follower(symbol, payload, regime=_fetch_market_regime())
+        observability.record_agent_decision(
+            agent_name="strategy_agent",
+            status="completed",
+            decision=candidate.direction,
+            summarized_input={"event": ev.model_dump(mode="json")},
+            summarized_output={"candidate": candidate.model_dump(mode="json")},
+            metadata={"strategy_name": "whale_follower", "event_id": ev.event_id},
+        )
+
+        strategy_def = STRATEGY_REGISTRY["whale_follower"]
+        if candidate.direction == "watch" or candidate.confidence < strategy_def.min_confidence:
+            observability.record_execution_event(
+                status="ignored",
+                event_type="whale_flow_filtered",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={
+                    "reason": "watch_or_low_confidence",
+                    "min_confidence": strategy_def.min_confidence,
+                    "candidate": candidate.model_dump(mode="json"),
+                    "source_event_id": ev.event_id,
+                },
+            )
+            return True
+
+        proposal = build_whale_follow_proposal(candidate, payload, source_agent="whale_flow_worker")
+        dispatch_result = dispatch_trade_proposal(proposal)
+        logger.info(
+            "whale_flow_worker: dispatched proposal_id=%s symbol=%s status=%s",
+            proposal.proposal_id,
+            symbol,
+            dispatch_result.status,
+        )
+        observability.record_execution_event(
+            status=dispatch_result.status,
+            event_type="whale_flow_dispatched",
+            symbol=symbol,
+            correlation_id=ev.correlation_id,
+            workflow_run_id=ev.workflow_id,
+            payload={
+                "candidate": candidate.model_dump(mode="json"),
+                "proposal_id": proposal.proposal_id,
+                "dispatch_status": dispatch_result.status,
+                "source_event_id": ev.event_id,
+            },
+        )
+        return True
+
+    except ValueError as exc:
+        logger.warning(
+            "whale_flow_worker: invalid whale_flow event_id=%s symbol=%s: %s",
+            ev.event_id,
+            symbol,
+            exc,
+        )
+        return True
+
+    except Exception as exc:
+        logger.exception(
+            "whale_flow_worker: failed for event_id=%s symbol=%s: %s",
+            ev.event_id,
+            symbol,
+            exc,
+        )
+        return False
 
 
 def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
@@ -309,15 +683,16 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
     # execution adapters all agree on when live placement is actually allowed.
     if safety.execution_mode != "live":
         logger.info(
-            "execution_handler: PAPER MODE — simulating execution for symbol=%s side=%s amount=%s",
+            "execution_handler: PAPER MODE — simulating execution for symbol=%s side=%s amount=%s paired=%s",
             ev.symbol,
             request.side,
             request.amount,
+            bool(request.legs),
         )
         _record_simulated_execution(event)
         notify_paper_execution_completed(
             symbol=ev.symbol or request.symbol or "unknown",
-            side=request.side,
+            side="paired" if request.legs else request.side,
             size_usd=float(request.size_usd or request.amount or 0),
             proposal_id=request.proposal_id,
             correlation_id=ev.correlation_id,
@@ -419,12 +794,164 @@ def _clamp_order_amount(amount: float, symbol: str) -> float:
     return amount
 
 
+def _place_paired_live_order(event: TradingEventEnvelope, *, request) -> bool:
+    """Place a paired multi-leg order with best-effort rollback on failure."""
+    ev = event.event
+    from backend.integrations.execution import VenueExecutionClient
+    from backend.trading.models import ExecutionOutcome, ExecutionResult
+
+    payload = request.model_dump(mode="json")
+    placed_legs: list[tuple[object, object, float]] = []
+
+    try:
+        for leg in request.legs:
+            client = VenueExecutionClient(leg.venue, account_type=leg.account_type)
+            if not client.configured:
+                raise ValueError(f"{leg.venue}:{leg.account_type} execution client is not configured")
+
+            amount = _clamp_order_amount(
+                _resolve_order_amount(
+                    {
+                        "symbol": leg.symbol,
+                        "amount": leg.amount,
+                        "size_usd": leg.size_usd,
+                    },
+                    prefer_size_usd=leg.amount is None and leg.size_usd is not None,
+                ),
+                leg.symbol,
+            )
+            order = client.place_order(
+                symbol=leg.symbol,
+                side=leg.side,
+                order_type=leg.order_type,
+                amount=amount,
+                price=float(leg.price) if leg.price is not None else None,
+                client_order_id=leg.client_order_id,
+                reduce_only=leg.reduce_only,
+                position_side=leg.position_side,
+            )
+            placed_legs.append((leg, order, amount))
+
+        result = ExecutionResult.success_result(
+            symbol=request.symbol,
+            order_id=",".join(str(getattr(order, "order_id", "") or "") for _, order, _ in placed_legs),
+            execution_mode="live",
+            correlation_id=ev.correlation_id,
+            workflow_id=ev.workflow_id,
+            payload={
+                **payload,
+                "paired_execution": True,
+                "execution_legs": [
+                    {
+                        "leg_id": leg.leg_id,
+                        "venue": leg.venue,
+                        "account_type": leg.account_type,
+                        "requested_amount": amount,
+                        "exchange_order": execution_order_payload(
+                            order,
+                            request_id=request.request_id,
+                            idempotency_key=request.idempotency_key,
+                        ),
+                    }
+                    for leg, order, amount in placed_legs
+                ],
+            },
+        )
+        _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
+        notify_live_execution_submitted(
+            symbol=request.symbol,
+            side="paired",
+            order_id=result.order_id or "",
+            amount=float(request.size_usd or 0),
+            proposal_id=request.proposal_id,
+            correlation_id=ev.correlation_id,
+        )
+        return True
+
+    except Exception as exc:
+        rollback_results: list[dict[str, object]] = []
+        rollback_failed = False
+
+        for leg, _order, amount in reversed(placed_legs):
+            try:
+                client = VenueExecutionClient(leg.venue, account_type=leg.account_type)
+                unwind_order = client.place_order(
+                    symbol=leg.symbol,
+                    side="sell" if leg.side == "buy" else "buy",
+                    order_type="market",
+                    amount=amount,
+                    client_order_id=f"{leg.client_order_id or leg.leg_id}-rollback",
+                    reduce_only=leg.account_type in {"swap", "futures", "contract"},
+                    position_side=leg.position_side,
+                )
+                rollback_results.append(
+                    {
+                        "leg_id": leg.leg_id,
+                        "rolled_back": True,
+                        "rollback_order": execution_order_payload(
+                            unwind_order,
+                            request_id=request.request_id,
+                            idempotency_key=request.idempotency_key,
+                        ),
+                    }
+                )
+            except Exception as rollback_exc:
+                rollback_failed = True
+                rollback_results.append(
+                    {
+                        "leg_id": leg.leg_id,
+                        "rolled_back": False,
+                        "error": str(rollback_exc),
+                    }
+                )
+
+        result = ExecutionResult.failed(
+            symbol=request.symbol,
+            execution_mode="live",
+            correlation_id=ev.correlation_id,
+            workflow_id=ev.workflow_id,
+            error_message=str(exc),
+            payload={
+                **payload,
+                "paired_execution": True,
+                "failure_stage": "paired_exchange_submission",
+                "placed_legs": [
+                    {
+                        "leg_id": leg.leg_id,
+                        "venue": leg.venue,
+                        "account_type": leg.account_type,
+                        "requested_amount": amount,
+                        "exchange_order": execution_order_payload(
+                            order,
+                            request_id=request.request_id,
+                            idempotency_key=request.idempotency_key,
+                        ),
+                    }
+                    for leg, order, amount in placed_legs
+                ],
+                "rollback": rollback_results,
+            },
+        )
+        _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
+        notify_live_execution_failed(
+            symbol=ev.symbol or request.symbol or "unknown",
+            side="paired",
+            error=str(exc),
+            proposal_id=request.proposal_id,
+            correlation_id=ev.correlation_id,
+        )
+        return bool(placed_legs) and not rollback_failed
+
+
 def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
     """Place a real order via CCXTExecutionClient."""
     ev = event.event
     from backend.trading.models import ExecutionOutcome, ExecutionRequest, ExecutionResult, RiskRejectionReason
 
     request = request or ExecutionRequest.model_validate(ev.payload)
+    if request.legs:
+        return _place_paired_live_order(event, request=request)
+
     payload = request.model_dump(mode="json")
 
     try:
@@ -570,6 +1097,7 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
                 "request_id": request.request_id,
                 "idempotency_key": request.idempotency_key,
                 "paper_mode": True,
+                "paired_execution": bool(request.legs),
             },
         )
         outcome = ExecutionOutcome.from_result(request, result)
@@ -601,12 +1129,13 @@ def _record_simulated_execution(event: TradingEventEnvelope) -> None:
             payload={"execution_outcome": outcome.model_dump(mode="json")},
             metadata={"proposal_id": request.proposal_id},
         )
-        try:
-            from backend.trading.position_manager import apply_execution_outcome_to_portfolio
+        if not request.legs:
+            try:
+                from backend.trading.position_manager import apply_execution_outcome_to_portfolio
 
-            apply_execution_outcome_to_portfolio(outcome)
-        except Exception as exc:
-            logger.warning("execution_handler: failed to project paper execution into portfolio snapshot: %s", exc)
+                apply_execution_outcome_to_portfolio(outcome)
+            except Exception as exc:
+                logger.warning("execution_handler: failed to project paper execution into portfolio snapshot: %s", exc)
     except Exception as exc:
         logger.warning("execution_handler: failed to record simulated execution: %s", exc)
 
@@ -663,7 +1192,7 @@ def _record_execution_event(
             },
             metadata={"proposal_id": outcome.request.proposal_id},
         )
-        if result.success:
+        if result.success and not outcome.request.legs:
             try:
                 from backend.trading.position_manager import apply_execution_outcome_to_portfolio
 
@@ -706,6 +1235,123 @@ def notification_handler(event: TradingEventEnvelope) -> bool:
     return True
 
 
+def _coerce_symbol_list(value: str | list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        tokens = [token.strip().upper() for token in value.split(",") if token.strip()]
+        return tokens or None
+
+    tokens = [str(token or "").strip().upper() for token in value if str(token or "").strip()]
+    return tokens or None
+
+
+def run_funding_spread_watcher_once(
+    *,
+    symbols: str | list[str] | None = None,
+    venues: str | list[str] | None = None,
+    limit: int = 20,
+    threshold: float = 0.0002,
+) -> list[TradingEventEnvelope]:
+    """Scan aggregate funding rates and publish cross-venue spread events."""
+    from backend.event_bus.publisher import publish_trading_event
+    from backend.tools.get_funding_rates import get_funding_rates
+
+    requested_symbols = _coerce_symbol_list(symbols)
+    response = get_funding_rates(
+        {
+            "symbols": requested_symbols,
+            "limit": limit,
+            "venue": venues if venues is not None else "all",
+        }
+    )
+    if not _tool_ok(response):
+        logger.warning("funding_spread_watcher: get_funding_rates returned non-ok response")
+        return []
+
+    data = _tool_data(response, {})
+    if not isinstance(data, dict):
+        return []
+
+    spread_rows = data.get("symbols") if data.get("aggregated") else []
+    if not isinstance(spread_rows, list):
+        return []
+
+    published: list[TradingEventEnvelope] = []
+    for row in spread_rows:
+        if not isinstance(row, dict):
+            continue
+
+        symbol = str(row.get("symbol") or "").upper()
+        funding_spread = float(row.get("funding_spread_8h") or 0.0)
+        if not symbol or abs(funding_spread) < threshold:
+            continue
+
+        max_venue = row.get("max_funding_venue")
+        min_venue = row.get("min_funding_venue")
+        event = TradingEvent(
+            event_type="funding_spread_detected",
+            symbol=symbol,
+            correlation_id=f"funding-spread::{symbol}",
+            producer="funding_spread_watcher",
+            workflow_id=f"watcher::funding_spread::{symbol}",
+            payload={
+                "symbol": symbol,
+                "funding_spread_8h": funding_spread,
+                "funding_spread_bps": row.get("funding_spread_bps"),
+                "spread_threshold_8h": threshold,
+                "highest_funding_leg": {
+                    "venue": max_venue,
+                    "exchange": row.get("max_funding_exchange"),
+                    "funding_rate": row.get("max_funding_rate"),
+                },
+                "lowest_funding_leg": {
+                    "venue": min_venue,
+                    "exchange": row.get("min_funding_exchange"),
+                    "funding_rate": row.get("min_funding_rate"),
+                },
+                "trade_hint": {
+                    "short_perp_venue": max_venue,
+                    "long_perp_venue": min_venue,
+                    "thesis": "Funding spread exceeds the cross-venue carry watch threshold.",
+                },
+                "venue_details": row.get("venues") or [],
+                "requested_venues": data.get("requested_venues") or [],
+            },
+            metadata={
+                "watcher": "funding_spread",
+                "threshold": threshold,
+                "limit": limit,
+            },
+        )
+        published.append(publish_trading_event(event))
+
+    return published
+
+
+def run_funding_spread_watcher_forever(
+    *,
+    symbols: str | list[str] | None = None,
+    venues: str | list[str] | None = None,
+    limit: int = 20,
+    threshold: float = 0.0002,
+    interval_seconds: int = 300,
+) -> None:
+    """Continuously poll funding spreads and publish events when thresholds trip."""
+    while True:
+        published = run_funding_spread_watcher_once(
+            symbols=symbols,
+            venues=venues,
+            limit=limit,
+            threshold=threshold,
+        )
+        logger.info(
+            "funding_spread_watcher: published %s funding spread signal(s)",
+            len(published),
+        )
+        time.sleep(max(interval_seconds, 1))
+
+
 # ---------------------------------------------------------------------------
 # Worker builders
 # ---------------------------------------------------------------------------
@@ -730,7 +1376,13 @@ def build_execution_worker() -> RedisStreamWorker:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a Hermes Redis Streams worker")
-    parser.add_argument("worker", choices=("orchestrator", "notifications", "execution"))
+    parser.add_argument("worker", choices=("orchestrator", "notifications", "execution", "funding_spread_watcher"))
+    parser.add_argument("--symbols", default=None, help="Comma-separated symbols for the funding spread watcher.")
+    parser.add_argument("--venues", default="all", help="Venue, comma-separated venue list, or 'all' for the funding spread watcher.")
+    parser.add_argument("--limit", type=int, default=20, help="Maximum symbols to scan per funding spread pass.")
+    parser.add_argument("--threshold", type=float, default=0.0002, help="Minimum absolute funding spread per 8h required to publish an event.")
+    parser.add_argument("--interval-seconds", type=int, default=300, help="Polling interval for the funding spread watcher.")
+    parser.add_argument("--once", action="store_true", help="Run the funding spread watcher once and exit.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -741,6 +1393,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.worker == "execution":
         build_execution_worker().run_forever(_handle_execution_requested)
+        return 0
+
+    if args.worker == "funding_spread_watcher":
+        if args.once:
+            run_funding_spread_watcher_once(
+                symbols=args.symbols,
+                venues=args.venues,
+                limit=args.limit,
+                threshold=args.threshold,
+            )
+            return 0
+
+        run_funding_spread_watcher_forever(
+            symbols=args.symbols,
+            venues=args.venues,
+            limit=args.limit,
+            threshold=args.threshold,
+            interval_seconds=args.interval_seconds,
+        )
         return 0
 
     build_notification_worker().run_forever(notification_handler)

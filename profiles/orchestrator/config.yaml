@@ -2,7 +2,7 @@ model:
   default: orchestrator-default
   provider: litellm
   base_url: ''
-  context_length: 1050000
+  context_length: 200000
 providers:
   litellm:
     name: LiteLLM Gateway
