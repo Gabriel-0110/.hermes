@@ -38,6 +38,23 @@ The compose file makes those dependencies explicit, and `make dev-up` shuts down
 - Hermes API bridge — `http://127.0.0.1:8000/api/v1/healthz`
 - Hermes web app — `http://127.0.0.1:3000`
 
+For a single operator-facing runtime snapshot, run:
+
+```bash
+hermes ops status
+```
+
+That command summarizes the active profile, dev stack status, API/dashboard/web health,
+LiteLLM, Redis, Postgres/TimescaleDB, gateway runtime authority, Slack/Telegram runtime
+status, launchd state, stale lock files, cron state for drawdown guard and whale tracker,
+and the last known trading mode. It exits nonzero when critical runtime components are unhealthy.
+
+Example:
+
+```bash
+hermes ops status
+```
+
 Expected host ports:
 
 - `5433` — TimescaleDB
@@ -90,12 +107,13 @@ For those deeper workflows, see:
 ## Short verification checklist
 
 1. Run `make dev-up`
-2. Run `make dev-check`
-3. Open:
+2. Run `hermes ops status`
+3. Run `make dev-check`
+4. Open:
    - LiteLLM UI: `http://localhost:4000/ui`
    - Dashboard: `http://localhost:9119`
    - Product API docs: `http://localhost:8000/docs`
    - Product web: `http://localhost:3000`
-4. Confirm all HTTP checks return `200`
+5. Confirm all HTTP checks return `200`
 
 That is the canonical local runtime. One command, one happy path, fewer haunted compose rituals.

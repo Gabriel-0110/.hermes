@@ -76,3 +76,39 @@ If you intentionally introduce a second concurrently running gateway profile in 
 - root/default `gateway_state.json` is not authoritative
 - use `hermes gateway doctor` before and after launchd changes
 - keep non-owner profile gateway jobs disabled until ownership is explicitly assigned
+
+## Cron runtime scope for `orchestrator`
+
+When the active profile is `orchestrator`, the gateway and cron scheduler read **profile-scoped** state from `profiles/orchestrator/`, not from the root `~/.hermes/` home.
+
+That means the authoritative cron assets are:
+
+- `profiles/orchestrator/cron/jobs.json`
+- `profiles/orchestrator/scripts/`
+- `profiles/orchestrator/cron/output/<job_id>/<timestamp>.md`
+- `profiles/orchestrator/logs/agent.log`
+- `profiles/orchestrator/logs/errors.log`
+
+The root-level `cron/jobs.json` and root `scripts/` directory are useful for workspace development and manual verification, but they are **not scheduled automatically** while `orchestrator` owns the runtime.
+
+For the runtime risk jobs added in April 2026:
+
+- `portfolio_sync.py` should run first so exchange-backed `PortfolioSnapshotRow` data exists before `drawdown_guard.py` evaluates 30-day drawdown.
+- `drawdown_guard.py` should run with `HERMES_HOME=profiles/orchestrator` (or another explicit profile) so it reads the correct `.env`, Redis keys, DB path, logs, and notification channels.
+- `whale_tracker.py` should also run inside the active profile because it emits `whale_flow` events onto the profile-scoped Redis/event-bus runtime.
+
+The wrappers in `scripts/` now self-bootstrap by:
+
+1. locating the workspace root dynamically,
+2. re-execing under `~/.hermes/.venv/bin/python` when available,
+3. inferring `HERMES_HOME` from either the enclosing profile path or `active_profile`,
+4. loading `HERMES_HOME/.env`, and
+5. initializing profile-scoped cron logging.
+
+If you want these jobs to be scheduled by the live `orchestrator` runtime, install matching wrapper files under `profiles/orchestrator/scripts/` and create the corresponding entries in `profiles/orchestrator/cron/jobs.json`.
+
+That rollout is now in place for:
+
+- `portfolio-sync` — every 5 minutes
+- `drawdown-guard` — every 15 minutes
+- `whale-tracker` — every 30 minutes

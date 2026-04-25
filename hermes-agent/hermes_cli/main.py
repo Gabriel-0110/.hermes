@@ -5,6 +5,7 @@ Hermes CLI - Main entry point.
 Usage:
     hermes                     # Interactive chat (default)
     hermes chat                # Interactive chat
+    hermes ops status          # Show full local runtime health
     hermes backtest            # Historical scorer replay and metrics
     hermes risk set-limit      # Persist symbol risk limits
     hermes gateway             # Run gateway in foreground
@@ -2857,6 +2858,12 @@ def cmd_status(args):
     show_status(args)
 
 
+def cmd_ops(args):
+    """Show operational runtime health."""
+    from hermes_cli.ops_status import show_ops_status
+    sys.exit(show_ops_status(args))
+
+
 def cmd_cron(args):
     """Cron job management."""
     from hermes_cli.cron import cron_command
@@ -4576,6 +4583,7 @@ Examples:
     hermes config                 View configuration
     hermes config edit            Edit config in $EDITOR
     hermes config set model gpt-4 Set a config value
+    hermes ops status             Show full local runtime health
     hermes gateway                Run messaging gateway
     hermes -s hermes-agent-dev,github-auth
     hermes -w                     Start in isolated git worktree
@@ -5036,6 +5044,22 @@ For more help on a command:
         help="Run deep checks (may take longer)"
     )
     status_parser.set_defaults(func=cmd_status)
+
+    # =========================================================================
+    # ops command
+    # =========================================================================
+    ops_parser = subparsers.add_parser(
+        "ops",
+        help="Operational runtime health checks",
+        description="Show the full local runtime health of Hermes",
+    )
+    ops_subparsers = ops_parser.add_subparsers(dest="ops_command")
+    ops_status = ops_subparsers.add_parser(
+        "status",
+        help="Show full local runtime health",
+    )
+    ops_status.set_defaults(func=cmd_ops, ops_command="status")
+    ops_parser.set_defaults(func=cmd_ops, ops_command="status")
 
     # =========================================================================
     # risk command

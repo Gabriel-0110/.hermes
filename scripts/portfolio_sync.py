@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cron wrapper for the Hermes drawdown guard job."""
+"""Cron wrapper for the Hermes portfolio sync job."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def _bootstrap() -> Path:
 PROJECT_ROOT = _bootstrap()
 AGENT_ROOT = PROJECT_ROOT / "hermes-agent"
 
-from backend.jobs.drawdown_guard import main  # noqa: E402
+from backend.jobs.portfolio_sync import main  # noqa: E402
 
 
 if __name__ == "__main__":

@@ -333,40 +333,39 @@ class BitMartPublicClient:
     def get_recent_trades(self, symbol: str, *, limit: int = 50) -> RecentTradesSnapshot:
         """Fetch recent public trades (tape/time-and-sales) for a futures symbol.
 
-        BitMart /contract/public/trades returns the most recent N trades.
-        Each trade has: symbol, deal_price, deal_vol, way (1=buy, 2=sell),
-        and create_time (ms epoch).
+        BitMart /contract/public/market-trade returns the most recent N trades.
+        Current responses contain fields like: ``price``, ``qty``, ``quote_qty``,
+        ``time`` (unix seconds), and ``is_buyer_maker``.
+
+        Older payloads may still contain ``deal_price`` / ``deal_vol`` / ``way`` /
+        ``create_time`` fields, so parsing remains backward-compatible.
         """
         sym = symbol.upper()
         response = self._client.get(
-            "/contract/public/trades",
+            "/contract/public/market-trade",
             params={"symbol": sym, "limit": min(limit, 100)},
         )
         self._raise(response, "recent trades")
 
-        raw_trades = response.json().get("data", {}).get("trades", [])
+        body = response.json()
+        raw_trades = body.get("data", [])
+        if isinstance(raw_trades, dict):
+            raw_trades = raw_trades.get("trades", [])
         if not isinstance(raw_trades, list):
             raw_trades = []
 
         trades: list[TradeRecord] = []
         for t in raw_trades[:limit]:
             try:
-                way = int(t.get("way", 0))
-                side: str
-                if way == 1:
-                    side = "buy"
-                elif way == 2:
-                    side = "sell"
-                else:
-                    side = "unknown"
+                side = _trade_side_from_payload(t)
 
                 price = _safe_float(t.get("deal_price") or t.get("price"))
                 size = _safe_float(t.get("deal_vol") or t.get("size") or t.get("qty"))
-                ts_ms = t.get("create_time") or t.get("timestamp")
-                if ts_ms:
-                    ts = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc).isoformat()
-                else:
-                    ts = datetime.now(timezone.utc).isoformat()
+                ts = _trade_timestamp_to_iso(
+                    t.get("create_time")
+                    or t.get("timestamp")
+                    or t.get("time")
+                ) or datetime.now(timezone.utc).isoformat()
 
                 if price is not None and size is not None:
                     trades.append(TradeRecord(price=price, size=size, side=side, timestamp=ts))
@@ -444,3 +443,41 @@ def _iso_to_dt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def _trade_timestamp_to_iso(value: Any) -> str | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return _ms_to_iso(value)
+
+    if numeric > 10_000_000_000:
+        numeric /= 1000.0
+    return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+
+
+def _trade_side_from_payload(payload: dict[str, Any]) -> str:
+    way = payload.get("way")
+    if way is not None:
+        try:
+            normalized_way = int(way)
+        except (TypeError, ValueError):
+            normalized_way = 0
+        if normalized_way == 1:
+            return "buy"
+        if normalized_way == 2:
+            return "sell"
+
+    is_buyer_maker = payload.get("is_buyer_maker")
+    if isinstance(is_buyer_maker, str):
+        lowered = is_buyer_maker.strip().lower()
+        if lowered in {"true", "1"}:
+            return "sell"
+        if lowered in {"false", "0"}:
+            return "buy"
+    if isinstance(is_buyer_maker, bool):
+        return "sell" if is_buyer_maker else "buy"
+
+    return "unknown"
