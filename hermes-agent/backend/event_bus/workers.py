@@ -860,6 +860,11 @@ def _place_paired_live_order(event: TradingEventEnvelope, *, request) -> bool:
                 ],
             },
         )
+        from backend.integrations.execution.mode import schedule_paper_shadow_for_request
+
+        shadow_fill_times = schedule_paper_shadow_for_request(request, result)
+        if shadow_fill_times:
+            result.payload["paper_shadow_fill_at"] = shadow_fill_times
         _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
         notify_live_execution_submitted(
             symbol=request.symbol,
@@ -1040,6 +1045,11 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
                 ),
             },
         )
+        from backend.integrations.execution.mode import schedule_paper_shadow_for_request
+
+        shadow_fill_times = schedule_paper_shadow_for_request(request, result)
+        if shadow_fill_times:
+            result.payload["paper_shadow_fill_at"] = shadow_fill_times[0] if len(shadow_fill_times) == 1 else shadow_fill_times
         _record_execution_event(event, outcome=ExecutionOutcome.from_result(request, result))
         notify_live_execution_submitted(
             symbol=order.symbol,

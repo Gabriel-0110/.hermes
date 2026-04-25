@@ -14,6 +14,7 @@ import os
 import secrets
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -934,6 +935,100 @@ async def get_usage_analytics(days: int = 30):
         return {"daily": daily, "by_model": by_model, "totals": totals, "period_days": days}
     finally:
         db.close()
+
+
+@app.get("/api/analytics/paper-shadow")
+async def get_paper_shadow_analytics(days: int = 30):
+    from backend.db import HermesTimeSeriesRepository, ensure_time_series_schema, session_scope
+    from backend.db.session import get_engine
+
+    cutoff = datetime.now(UTC) - timedelta(days=max(1, min(days, 365)))
+
+    try:
+        engine = get_engine()
+        ensure_time_series_schema(engine)
+        with session_scope() as session:
+            rows = HermesTimeSeriesRepository(session).list_paper_shadow_fills(limit=1000, since=cutoff)
+    except Exception as exc:
+        _log.warning("Paper-shadow analytics query failed: %s", exc)
+        rows = []
+
+    totals = {
+        "fills": 0,
+        "live_notional_usd": 0.0,
+        "shadow_notional_usd": 0.0,
+        "pnl_divergence_usd": 0.0,
+    }
+    grouped: dict[str, dict[str, Any]] = {}
+    recent_fills: list[dict[str, Any]] = []
+
+    for row in rows:
+        strategy_name = row.strategy_template_id or row.strategy_id or "unknown"
+        strategy = grouped.setdefault(
+            strategy_name,
+            {
+                "strategy_name": strategy_name,
+                "fills": 0,
+                "symbols": set(),
+                "live_notional_usd": 0.0,
+                "shadow_notional_usd": 0.0,
+                "pnl_divergence_usd": 0.0,
+            },
+        )
+
+        live_notional = float(row.live_notional_usd or 0.0)
+        shadow_notional = float(row.shadow_notional_usd or 0.0)
+        pnl_divergence = float(row.pnl_divergence_usd or 0.0)
+
+        totals["fills"] += 1
+        totals["live_notional_usd"] += live_notional
+        totals["shadow_notional_usd"] += shadow_notional
+        totals["pnl_divergence_usd"] += pnl_divergence
+
+        strategy["fills"] += 1
+        strategy["symbols"].add(row.symbol)
+        strategy["live_notional_usd"] += live_notional
+        strategy["shadow_notional_usd"] += shadow_notional
+        strategy["pnl_divergence_usd"] += pnl_divergence
+
+        recent_fills.append(
+            {
+                "id": row.id,
+                "fill_time": row.fill_time.isoformat() if row.fill_time else None,
+                "strategy_name": strategy_name,
+                "symbol": row.symbol,
+                "side": row.side,
+                "live_reference_price": row.live_reference_price,
+                "shadow_price": row.shadow_price,
+                "amount": row.amount,
+                "pnl_divergence_usd": pnl_divergence,
+            }
+        )
+
+    by_strategy = [
+        {
+            **entry,
+            "symbols": sorted(entry["symbols"]),
+            "live_notional_usd": round(entry["live_notional_usd"], 2),
+            "shadow_notional_usd": round(entry["shadow_notional_usd"], 2),
+            "pnl_divergence_usd": round(entry["pnl_divergence_usd"], 2),
+        }
+        for entry in grouped.values()
+    ]
+    by_strategy.sort(key=lambda item: abs(item["pnl_divergence_usd"]), reverse=True)
+    recent_fills.sort(key=lambda item: item["fill_time"] or "", reverse=True)
+
+    return {
+        "period_days": days,
+        "totals": {
+            "fills": totals["fills"],
+            "live_notional_usd": round(totals["live_notional_usd"], 2),
+            "shadow_notional_usd": round(totals["shadow_notional_usd"], 2),
+            "pnl_divergence_usd": round(totals["pnl_divergence_usd"], 2),
+        },
+        "by_strategy": by_strategy,
+        "recent_fills": recent_fills[:25],
+    }
 
 
 @app.get("/api/observability/dashboard")

@@ -668,6 +668,15 @@ class TestNewEndpoints:
         assert isinstance(data["daily"], list)
         assert "total_sessions" in data["totals"]
 
+    def test_paper_shadow_analytics(self):
+        resp = self.client.get("/api/analytics/paper-shadow?days=7")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "totals" in data
+        assert "by_strategy" in data
+        assert "recent_fills" in data
+        assert "fills" in data["totals"]
+
     def test_session_token_endpoint(self):
         from hermes_cli.web_server import _SESSION_TOKEN
         resp = self.client.get("/api/auth/session-token")

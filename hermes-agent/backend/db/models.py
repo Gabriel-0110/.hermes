@@ -345,6 +345,44 @@ class MovementJournalRow(Base):
     )
 
 
+class PaperShadowFillRow(Base):
+    __tablename__ = "paper_shadow_fills"
+    __table_args__ = (
+        Index("ix_paper_shadow_fills_strategy_time", "strategy_template_id", "fill_time"),
+        Index("ix_paper_shadow_fills_symbol_time", "symbol", "fill_time"),
+        Index("ix_paper_shadow_fills_request_time", "request_id", "fill_time"),
+        Index("ix_paper_shadow_fills_correlation_time", "correlation_id", "fill_time"),
+    )
+
+    fill_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True, default=lambda: _new_id("shadow_fill"))
+    proposal_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    leg_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    workflow_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    strategy_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    strategy_template_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_agent: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(32), nullable=False)
+    execution_style: Mapped[str] = mapped_column(String(32), nullable=False, default="single")
+    live_order_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    live_reference_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shadow_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    live_notional_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shadow_notional_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pnl_divergence_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payload_json: Mapped[dict] = mapped_column("payload", JSON, nullable=False, default=dict)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class SystemErrorRow(Base):
     __tablename__ = "system_errors"
     __table_args__ = (

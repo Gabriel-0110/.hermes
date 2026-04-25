@@ -15,6 +15,7 @@ from .models import (
     ExecutionEventRow,
     MovementJournalRow,
     NotificationSentRow,
+    PaperShadowFillRow,
     PortfolioSnapshotRow,
     RegressionComparisonRow,
     ReplayCaseRow,
@@ -777,6 +778,78 @@ class HermesTimeSeriesRepository:
         if movement_type:
             statement = statement.where(MovementJournalRow.movement_type == movement_type)
         statement = statement.order_by(desc(MovementJournalRow.movement_time)).limit(max(1, min(limit, 500)))
+        return list(self.session.scalars(statement))
+
+    def insert_paper_shadow_fill(
+        self,
+        *,
+        fill_time: datetime,
+        symbol: str,
+        side: str,
+        execution_style: str,
+        payload: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        proposal_id: str | None = None,
+        request_id: str | None = None,
+        leg_id: str | None = None,
+        correlation_id: str | None = None,
+        workflow_run_id: str | None = None,
+        strategy_id: str | None = None,
+        strategy_template_id: str | None = None,
+        source_agent: str | None = None,
+        live_order_id: str | None = None,
+        live_reference_price: float | None = None,
+        shadow_price: float | None = None,
+        amount: float | None = None,
+        live_notional_usd: float | None = None,
+        shadow_notional_usd: float | None = None,
+        pnl_divergence_usd: float | None = None,
+        paper_shadow_fill_id: str | None = None,
+    ) -> PaperShadowFillRow:
+        row = PaperShadowFillRow(
+            fill_time=fill_time,
+            id=paper_shadow_fill_id,
+            proposal_id=proposal_id,
+            request_id=request_id,
+            leg_id=leg_id,
+            correlation_id=correlation_id,
+            workflow_run_id=workflow_run_id,
+            strategy_id=strategy_id,
+            strategy_template_id=strategy_template_id,
+            source_agent=source_agent,
+            symbol=symbol,
+            side=side,
+            execution_style=execution_style,
+            live_order_id=live_order_id,
+            live_reference_price=live_reference_price,
+            shadow_price=shadow_price,
+            amount=amount,
+            live_notional_usd=live_notional_usd,
+            shadow_notional_usd=shadow_notional_usd,
+            pnl_divergence_usd=pnl_divergence_usd,
+            payload_json=payload or {},
+            metadata_json=metadata or {},
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def list_paper_shadow_fills(
+        self,
+        *,
+        limit: int = 200,
+        strategy_template_id: str | None = None,
+        symbol: str | None = None,
+        since: datetime | None = None,
+    ) -> list[PaperShadowFillRow]:
+        statement = select(PaperShadowFillRow)
+        if strategy_template_id:
+            statement = statement.where(PaperShadowFillRow.strategy_template_id == strategy_template_id)
+        if symbol:
+            statement = statement.where(PaperShadowFillRow.symbol == symbol.upper())
+        if since:
+            statement = statement.where(PaperShadowFillRow.fill_time >= since)
+        statement = statement.order_by(desc(PaperShadowFillRow.fill_time)).limit(max(1, min(limit, 1000)))
         return list(self.session.scalars(statement))
 
     def insert_system_error(

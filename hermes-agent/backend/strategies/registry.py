@@ -90,6 +90,18 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         universe_filter="large_cap",
         min_confidence=0.0,
     ),
+    "liquidation_hunt": StrategyDefinition(
+        name="liquidation_hunt",
+        strategy_type="mean_reversion",
+        description=(
+            "Liquidation-reversal strategy: buy sharp downside flushes after heavy long-side liquidation "
+            "pressure once price stretches materially below short-horizon VWAP."
+        ),
+        version="1.0.0",
+        timeframes=["5m", "15m"],
+        universe_filter="large_cap",
+        min_confidence=0.0,
+    ),
     "whale_follower": StrategyDefinition(
         name="whale_follower",
         strategy_type="flow",
@@ -169,6 +181,8 @@ def _normalize_strategy_name(value: str | None) -> str | None:
         return "breakout"
     if "mean" in normalized and ("reversion" in normalized or "revert" in normalized):
         return "mean_reversion"
+    if "liquidation" in normalized or "liq_hunt" in normalized or "liquidation_hunt" in normalized:
+        return "liquidation_hunt"
     if "carry" in normalized:
         return "delta_neutral_carry"
     if "whale" in normalized or "smart_money" in normalized or "smart-money" in normalized:

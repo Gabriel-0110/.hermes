@@ -8,7 +8,13 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AnalyticsResponse, AnalyticsDailyEntry, AnalyticsModelEntry } from "@/lib/api";
+import type {
+  AnalyticsResponse,
+  AnalyticsDailyEntry,
+  AnalyticsModelEntry,
+  PaperShadowAnalyticsResponse,
+  PaperShadowStrategyEntry,
+} from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -29,6 +35,11 @@ function formatTokens(n: number): string {
 function formatCost(n: number): string {
   if (n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(2)}`;
+}
+
+function formatSignedCost(n: number): string {
+  const prefix = n > 0 ? "+" : n < 0 ? "-" : "";
+  return `${prefix}${formatCost(Math.abs(n))}`;
 }
 
 /** Pick the best cost value: actual > estimated > 0 */
@@ -257,18 +268,69 @@ function ModelTable({ models }: { models: AnalyticsModelEntry[] }) {
   );
 }
 
+function PaperShadowTable({ strategies }: { strategies: PaperShadowStrategyEntry[] }) {
+  if (strategies.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Live vs Paper-Shadow</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground text-xs">
+                <th className="text-left py-2 pr-4 font-medium">Strategy</th>
+                <th className="text-left py-2 px-4 font-medium">Symbols</th>
+                <th className="text-right py-2 px-4 font-medium">Fills</th>
+                <th className="text-right py-2 px-4 font-medium">Live Notional</th>
+                <th className="text-right py-2 px-4 font-medium">Shadow Notional</th>
+                <th className="text-right py-2 pl-4 font-medium">Live Edge</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategies.map((strategy) => (
+                <tr key={strategy.strategy_name} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
+                  <td className="py-2 pr-4 font-medium">{strategy.strategy_name}</td>
+                  <td className="py-2 px-4 text-muted-foreground">{strategy.symbols.join(", ") || "—"}</td>
+                  <td className="text-right py-2 px-4 text-muted-foreground">{strategy.fills}</td>
+                  <td className="text-right py-2 px-4 text-muted-foreground">{formatCost(strategy.live_notional_usd)}</td>
+                  <td className="text-right py-2 px-4 text-muted-foreground">{formatCost(strategy.shadow_notional_usd)}</td>
+                  <td className={`text-right py-2 pl-4 font-medium ${strategy.pnl_divergence_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {formatSignedCost(strategy.pnl_divergence_usd)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<AnalyticsResponse | null>(null);
+  const [shadowData, setShadowData] = useState<PaperShadowAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    api
-      .getAnalytics(days)
-      .then(setData)
+    Promise.all([
+      api.getAnalytics(days),
+      api.getPaperShadowAnalytics(days).catch(() => null),
+    ])
+      .then(([usage, shadow]) => {
+        setData(usage);
+        setShadowData(shadow);
+      })
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
   }, [days]);
@@ -347,6 +409,39 @@ export default function AnalyticsPage() {
 
           {/* Bar chart */}
           <TokenBarChart daily={data.daily} />
+
+          {shadowData && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <SummaryCard
+                  icon={TrendingUp}
+                  label="Shadow Fills"
+                  value={String(shadowData.totals.fills)}
+                  sub={`last ${days}d`}
+                />
+                <SummaryCard
+                  icon={Coins}
+                  label="Live Notional"
+                  value={formatCost(shadowData.totals.live_notional_usd)}
+                  sub="executed live fills"
+                />
+                <SummaryCard
+                  icon={Database}
+                  label="Shadow Notional"
+                  value={formatCost(shadowData.totals.shadow_notional_usd)}
+                  sub="simulated next-minute fills"
+                />
+                <SummaryCard
+                  icon={BarChart3}
+                  label="Live Edge"
+                  value={formatSignedCost(shadowData.totals.pnl_divergence_usd)}
+                  sub="positive means live beat shadow"
+                />
+              </div>
+
+              <PaperShadowTable strategies={shadowData.by_strategy} />
+            </>
+          )}
 
           {/* Tables */}
           <DailyTable daily={data.daily} />

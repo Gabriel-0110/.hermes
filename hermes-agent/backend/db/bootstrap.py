@@ -20,6 +20,7 @@ HYPERTABLE_SPECS: tuple[tuple[str, str], ...] = (
     ("agent_decisions", "created_at"),
     ("execution_events", "created_at"),
     ("movement_journal", "movement_time"),
+    ("paper_shadow_fills", "fill_time"),
     ("system_errors", "created_at"),
     ("replay_cases", "created_at"),
     ("replay_runs", "created_at"),

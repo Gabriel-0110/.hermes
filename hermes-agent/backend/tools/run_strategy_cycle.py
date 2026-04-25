@@ -48,8 +48,8 @@ class RunStrategyCycleInput(BaseModel):
     )
     universe: list[str] = Field(
         min_length=1,
-        max_length=20,
-        description="Symbols to scan (e.g. ['BTC', 'ETH', 'SOL']).",
+        max_length=60,
+        description="Symbols to scan (e.g. ['BTC', 'ETH', 'SOL']). Supports larger scheduled top-alt universes.",
     )
     dry_run: bool = Field(
         default=False,

@@ -39,6 +39,8 @@ export const api = {
   },
   getAnalytics: (days: number) =>
     fetchJSON<AnalyticsResponse>(`/api/analytics/usage?days=${days}`),
+  getPaperShadowAnalytics: (days: number) =>
+    fetchJSON<PaperShadowAnalyticsResponse>(`/api/analytics/paper-shadow?days=${days}`),
   getObservabilityDashboard: (limit = 20) =>
     fetchJSON<ObservabilityDashboardResponse>(`/api/observability/dashboard?limit=${limit}`),
   getWorkflowRuns: (params: { limit?: number; status?: string } = {}) => {
@@ -305,6 +307,39 @@ export interface AnalyticsResponse {
     total_actual_cost: number;
     total_sessions: number;
   };
+}
+
+export interface PaperShadowStrategyEntry {
+  strategy_name: string;
+  fills: number;
+  symbols: string[];
+  live_notional_usd: number;
+  shadow_notional_usd: number;
+  pnl_divergence_usd: number;
+}
+
+export interface PaperShadowFillEntry {
+  id: string;
+  fill_time: string | null;
+  strategy_name: string;
+  symbol: string;
+  side: string;
+  live_reference_price: number | null;
+  shadow_price: number | null;
+  amount: number | null;
+  pnl_divergence_usd: number;
+}
+
+export interface PaperShadowAnalyticsResponse {
+  period_days: number;
+  totals: {
+    fills: number;
+    live_notional_usd: number;
+    shadow_notional_usd: number;
+    pnl_divergence_usd: number;
+  };
+  by_strategy: PaperShadowStrategyEntry[];
+  recent_fills: PaperShadowFillEntry[];
 }
 
 export interface CronJob {
