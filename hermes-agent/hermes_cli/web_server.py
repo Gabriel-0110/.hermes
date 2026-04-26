@@ -1273,6 +1273,49 @@ async def reject_execution(approval_id: str, reason: str = ""):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/policy/traces")
+async def get_policy_traces(since: str | None = None, limit: int = 50):
+    try:
+        from backend.db import ensure_time_series_schema, session_scope
+        from backend.db.models import PolicyTraceRow
+        from backend.db.session import get_engine
+        from sqlalchemy import desc, select
+        from datetime import datetime, timezone
+
+        ensure_time_series_schema(get_engine())
+        with session_scope() as session:
+            stmt = select(PolicyTraceRow).order_by(desc(PolicyTraceRow.created_at))
+            if since:
+                try:
+                    since_dt = datetime.fromisoformat(since)
+                    if since_dt.tzinfo is None:
+                        since_dt = since_dt.replace(tzinfo=timezone.utc)
+                    stmt = stmt.where(PolicyTraceRow.created_at >= since_dt)
+                except ValueError:
+                    pass
+            stmt = stmt.limit(max(1, min(limit, 200)))
+            rows = list(session.scalars(stmt))
+            return [
+                {
+                    "id": row.id,
+                    "proposal_id": row.proposal_id,
+                    "status": row.status,
+                    "execution_mode": row.execution_mode,
+                    "approved": row.approved,
+                    "symbol": row.symbol,
+                    "trace": row.trace,
+                    "rejection_reasons": row.rejection_reasons,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                }
+                for row in rows
+            ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log.exception("GET /api/policy/traces failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 def mount_spa(application: FastAPI):
     """Mount the built SPA. Falls back to index.html for client-side routing."""
     if not WEB_DIST.exists():

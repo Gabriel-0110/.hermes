@@ -1116,6 +1116,69 @@ class TelegramAdapter(BasePlatformAdapter):
             logger.warning("[%s] send_exec_approval failed: %s", self.name, e)
             return SendResult(success=False, error=str(e))
 
+    async def send_trade_approval(
+        self,
+        chat_id: str,
+        approval_id: str,
+        symbol: str,
+        side: str,
+        size_usd: float,
+        rationale: str,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> "SendResult":
+        """Send a trade approval inline keyboard with HMAC-signed callback data.
+
+        Buttons: Approve / Decline / Details. Each token includes a 10-minute
+        TTL — expired clicks are rejected with a notice.
+        """
+        if not self._bot:
+            return SendResult(success=False, error="Not connected")
+
+        try:
+            from backend.trading.approval_signing import sign_callback
+
+            text = (
+                f"📊 *Trade Approval Required*\n\n"
+                f"Symbol: `{symbol}`\n"
+                f"Side: `{side}`\n"
+                f"Size: `${size_usd:,.2f}`\n\n"
+                f"Rationale: {rationale[:500]}"
+            )
+
+            approve_token = sign_callback("approve", approval_id)
+            decline_token = sign_callback("decline", approval_id)
+            details_token = sign_callback("details", approval_id)
+
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"ta:{approve_token}"),
+                    InlineKeyboardButton("❌ Decline", callback_data=f"ta:{decline_token}"),
+                ],
+                [
+                    InlineKeyboardButton("📋 Details", callback_data=f"ta:{details_token}"),
+                ],
+            ])
+
+            thread_id = None
+            if metadata:
+                thread_id = metadata.get("thread_id") or metadata.get("message_thread_id")
+
+            kwargs: Dict[str, Any] = {
+                "chat_id": int(chat_id),
+                "text": text,
+                "parse_mode": ParseMode.MARKDOWN,
+                "reply_markup": keyboard,
+            }
+            if thread_id:
+                kwargs["message_thread_id"] = int(thread_id)
+
+            msg = await self._bot.send_message(**kwargs)
+            return SendResult(success=True, message_id=str(msg.message_id))
+        except Exception as e:
+            logger.warning("[%s] send_trade_approval failed: %s", self.name, e)
+            return SendResult(success=False, error=str(e))
+
     async def send_model_picker(
         self,
         chat_id: str,
@@ -1484,6 +1547,87 @@ class TelegramAdapter(BasePlatformAdapter):
                     )
                 except Exception as exc:
                     logger.error("Failed to resolve gateway approval from Telegram button: %s", exc)
+            return
+
+        # --- Trade approval callbacks (ta:action:approval_id:ts:sig) ---
+        if data.startswith("ta:"):
+            token = data[3:]
+            try:
+                from backend.trading.approval_signing import verify_callback
+                valid, action, approval_id, rejection_reason = verify_callback(token)
+            except Exception as exc:
+                await query.answer(text="⚠️ Verification error.")
+                return
+
+            if not valid:
+                if rejection_reason == "expired":
+                    await query.answer(text="⏰ This approval has expired (10-min TTL).")
+                else:
+                    await query.answer(text=f"⛔ Invalid: {rejection_reason}")
+                try:
+                    await query.edit_message_text(
+                        text="❌ Expired or invalid approval.",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=None,
+                    )
+                except Exception:
+                    pass
+                return
+
+            caller_id = str(getattr(query.from_user, "id", ""))
+            allowed_csv = os.getenv("TELEGRAM_ALLOWED_USERS", "").strip()
+            if allowed_csv:
+                allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+                if "*" not in allowed_ids and caller_id not in allowed_ids:
+                    await query.answer(text="⛔ You are not authorized.")
+                    return
+
+            user_display = getattr(query.from_user, "first_name", "User")
+
+            if action == "approve":
+                try:
+                    from backend.approvals import approve_request
+                    approve_request(approval_id, operator=user_display)
+                    await query.answer(text="✅ Approved")
+                    await query.edit_message_text(
+                        text=f"✅ Approved by {user_display}",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=None,
+                    )
+                except Exception as exc:
+                    logger.error("Trade approval failed: %s", exc)
+                    await query.answer(text="⚠️ Approval failed.")
+            elif action == "decline":
+                try:
+                    from backend.approvals import reject_request
+                    reject_request(approval_id, operator=user_display, reason="Declined via Telegram")
+                    await query.answer(text="❌ Declined")
+                    await query.edit_message_text(
+                        text=f"❌ Declined by {user_display}",
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=None,
+                    )
+                except Exception as exc:
+                    logger.error("Trade rejection failed: %s", exc)
+                    await query.answer(text="⚠️ Rejection failed.")
+            elif action == "details":
+                try:
+                    from backend.approvals import get_approval
+                    approval = get_approval(approval_id)
+                    detail_text = f"📋 *Approval Details*\n\nID: `{approval_id}`\n"
+                    if approval:
+                        detail_text += f"Symbol: `{approval.get('symbol', '?')}`\n"
+                        detail_text += f"Side: `{approval.get('side', '?')}`\n"
+                        detail_text += f"Status: `{approval.get('status', '?')}`\n"
+                    await query.answer(text="Details shown above")
+                    await query.edit_message_text(
+                        text=detail_text,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=None,
+                    )
+                except Exception as exc:
+                    logger.error("Details fetch failed: %s", exc)
+                    await query.answer(text="⚠️ Details unavailable.")
             return
 
         # --- Copy-trader switch proposal callbacks (cts:action:proposal_id) ---

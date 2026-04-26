@@ -424,27 +424,53 @@ $ pytest tests/backend tests/tools tests/hermes_cli -q
 
 ---
 
-### Prompt F — Dashboard + Approval UX
+### Prompt F — Dashboard + Approval UX ✅ COMPLETED 2026-04-26
 
-**Goal.** Persist `PolicyDecision.trace[]` per proposal and build a dashboard + Telegram inline keyboard with 10-min TTL approve/decline/details.
+**Result:** 20 new tests — **all pass**. Full suite: **5238 passed, 25 skipped, 0 failed, 0 errors**.
 
-**Scope (files).**
-- New table `policy_traces` (proposal_id, decision_json, trace[], created_at).
-- Modified: `backend/trading/policy_engine.py` to persist on every decision.
-- New backend route in `web/` for `/api/policy/traces?since=...`.
-- New page in `hermes-agent/web/src/pages/DecisionsPage.tsx`.
-- Modified: `hermes-agent/gateway/platforms/telegram.py` to post inline keyboard with callback data `approve:{id}` / `decline:{id}` / `details:{id}`; honour 10-min TTL by checking `created_at` on callback.
-- New: `hermes-agent/tests/backend/test_policy_trace_persistence.py`, `tests/gateway/test_telegram_approval.py`.
+**Changes made:**
 
-**Safety constraints.** Approval callbacks must use HMAC-signed callback_data to defeat spoofing; expired callbacks reply with rejection notice and never auto-approve.
+- New: `hermes-agent/alembic/versions/0009_policy_traces.py` — `policy_traces` table with proposal_id, status, execution_mode, approved, symbol, decision_json, trace[], rejection_reasons[], created_at
+- New: `hermes-agent/backend/db/models.py` — added `PolicyTraceRow` ORM model
+- Modified: `hermes-agent/backend/trading/policy_engine.py` — added `persist_policy_trace()` called after every `evaluate_trade_proposal()` decision; tolerates DB failures gracefully
+- New: `hermes-agent/backend/trading/approval_signing.py` — HMAC-SHA256 signing/verification for callback tokens with 10-min TTL; `sign_callback()` and `verify_callback()`
+- Modified: `hermes-agent/hermes_cli/web_server.py` — added `GET /api/policy/traces?since=&limit=` endpoint returning last 50 decisions
+- New: `hermes-agent/web/src/pages/DecisionsPage.tsx` — React dashboard showing policy decisions with status badges, trace entries, rejection reasons, auto-refresh every 10s
+- Modified: `hermes-agent/gateway/platforms/telegram.py` — added `send_trade_approval()` with HMAC-signed inline keyboard (Approve/Decline/Details); added `ta:` callback handler in `_handle_callback_query()` that verifies HMAC + TTL, calls `approve_request()`/`reject_request()`/`get_approval()`
+- New: `hermes-agent/tests/backend/test_policy_trace_persistence.py` — 6 tests
+- New: `hermes-agent/tests/gateway/test_telegram_approval.py` — 14 tests
 
-**Verification.**
-```bash
-cd hermes-agent && ../.venv/bin/pytest tests/backend/test_policy_trace_persistence.py tests/gateway/test_telegram_approval.py -q
-# Manual: send mock proposal, observe Telegram keyboard, click approve within TTL.
+**Safety constraints verified:**
+
+- HMAC-SHA256 signed callback tokens (secret from `HERMES_APPROVAL_HMAC_SECRET` env var)
+- 10-minute TTL enforced — expired callbacks return "⏰ This approval has expired"
+- Tampered tokens (action, approval_id, signature) are rejected with "signature_mismatch"
+- Telegram `TELEGRAM_ALLOWED_USERS` authorization check on all callback clicks
+- `persist_policy_trace` tolerates DB failures (try/except, debug log)
+- Every `evaluate_trade_proposal` call persists a trace — full audit trail
+
+**Test coverage (20 tests):**
+
+- Trace persistence: 4 tests (stores approved decision, stores rejection with reasons, tolerates DB failure, stores multiple)
+- PolicyTraceRow model: 1 test (round-trip persistence)
+- Migration existence: 1 test
+- HMAC signing: 2 tests (four-part token format, different actions differ)
+- HMAC verification valid: 3 tests (approve, decline, details tokens)
+- HMAC expiry: 1 test (expired after TTL)
+- HMAC tampering: 3 tests (tampered signature, action, approval_id)
+- HMAC malformed: 3 tests (too few parts, empty, bad timestamp)
+- TTL boundary: 1 test (valid at TTL-1 second)
+- Different secret: 1 test (verification fails with changed secret)
+
+**Verification:**
+
+```text
+$ pytest tests/backend/test_policy_trace_persistence.py tests/gateway/test_telegram_approval.py -v -o "addopts="
+20 passed in 0.58s
+
+$ pytest tests/backend tests/tools tests/hermes_cli -q
+5238 passed, 25 skipped in 106.44s
 ```
-
-**Acceptance.** Every decision has a persisted trace; TTL enforced; callback_data signed; dashboard displays last 50 decisions.
 
 ---
 

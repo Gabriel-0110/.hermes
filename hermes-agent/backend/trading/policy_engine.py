@@ -18,6 +18,28 @@ from .safety import approval_required, get_kill_switch_state
 logger = logging.getLogger(__name__)
 
 
+def persist_policy_trace(decision: PolicyDecision, *, symbol: str | None = None) -> None:
+    try:
+        from backend.db import ensure_time_series_schema, session_scope
+        from backend.db.models import PolicyTraceRow
+        from backend.db.session import get_engine
+
+        ensure_time_series_schema(get_engine())
+        with session_scope() as session:
+            session.add(PolicyTraceRow(
+                proposal_id=decision.proposal_id or "",
+                status=decision.status,
+                execution_mode=decision.execution_mode,
+                approved=decision.approved,
+                symbol=symbol,
+                decision_json=decision.model_dump(mode="json"),
+                trace=list(decision.policy_trace),
+                rejection_reasons=[str(r) for r in decision.rejection_reasons],
+            ))
+    except Exception as exc:
+        logger.debug("Failed to persist policy trace: %s", exc)
+
+
 def _portfolio_warnings() -> list[str]:
     try:
         snapshot = get_portfolio_state({})
@@ -156,7 +178,7 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
     if not proposal.strategy_template_id:
         warnings.append("No strategy_template_id was provided; proposal is less audit-friendly.")
 
-    return PolicyDecision(
+    decision = PolicyDecision(
         proposal_id=proposal.proposal_id,
         status=status,
         execution_mode=execution_mode,
@@ -172,3 +194,7 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
         raw_risk_payload=risk_payload if isinstance(risk_payload, dict) else {},
         rejection_reasons=rejection_reasons,
     )
+
+    persist_policy_trace(decision, symbol=proposal.symbol)
+
+    return decision

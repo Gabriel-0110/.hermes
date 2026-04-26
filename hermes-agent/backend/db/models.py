@@ -753,6 +753,27 @@ class CopyTraderSwitchProposalRow(Base):
     )
 
 
+class PolicyTraceRow(Base):
+    __tablename__ = "policy_traces"
+    __table_args__ = (
+        Index("ix_policy_traces_proposal_id", "proposal_id"),
+        Index("ix_policy_traces_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("ptrace"))
+    proposal_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    execution_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    approved: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    symbol: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    decision_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    trace: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    rejection_reasons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=func.now(),
+    )
+
+
 class StrategyWeightOverrideRow(Base):
     __tablename__ = "strategy_weight_overrides"
     __table_args__ = (
