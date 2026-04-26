@@ -89,6 +89,20 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         universe_filter="large_cap",
         min_confidence=0.0,
     ),
+    "whale_follower": StrategyDefinition(
+        name="whale_follower",
+        strategy_type="momentum",
+        description=(
+            "Smart-money whale-flow following strategy: monitors on-chain accumulation events from "
+            "labeled high-conviction wallets. Triggers on fresh accumulation above $50k threshold "
+            "across BTC, ETH, SOL, XRP, ADA, and AVAX. Scores by accumulation size, unique wallet "
+            "count, trade count, wallet profit/win-rate priors, and macro regime alignment."
+        ),
+        version="1.0.0",
+        timeframes=["30m"],
+        universe_filter="large_cap",
+        min_confidence=0.25,
+    ),
 }
 
 

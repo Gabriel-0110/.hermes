@@ -10,16 +10,16 @@ export const metadata: Metadata = {
 
 const navItems = [
   { href: "/", label: "Dashboard", code: "00" },
-  { href: "/mission-control", label: "Mission Control", code: "01" },
-  { href: "/observability", label: "Observability", code: "02" },
-  { href: "/alerts", label: "Alerts", code: "03" },
+  { href: "/positions", label: "Positions", code: "01" },
+  { href: "/mission-control", label: "Mission Control", code: "02" },
+  { href: "/observability", label: "Observability", code: "03" },
   { href: "/agents", label: "Agents", code: "04" },
 ];
 
 const hudItems = [
-  { label: "Scope", value: "Mission Ops" },
-  { label: "Surface", value: "Operator oversight" },
-  { label: "Data", value: "Live API" },
+  { label: "Exchange", value: "BITMART" },
+  { label: "Mode", value: "LIVE" },
+  { label: "Surface", value: "Trading Desk" },
   { label: "Window", value: "UTC" },
 ];
 

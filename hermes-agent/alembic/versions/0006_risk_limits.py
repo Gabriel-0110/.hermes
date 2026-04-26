@@ -1,7 +1,7 @@
 """risk_limits table for persisted position and leverage caps.
 
-Revision ID: 0005_risk_limits
-Revises: 0004_paper_shadow_fills
+Revision ID: 0006
+Revises: 0005
 Create Date: 2026-04-25 11:30:00.000000
 """
 
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0005_risk_limits"
-down_revision = "0004_paper_shadow_fills"
+revision = "0006"
+down_revision = "0005"
 branch_labels = None
 depends_on = None
 
