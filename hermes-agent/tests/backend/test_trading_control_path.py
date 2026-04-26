@@ -4,9 +4,17 @@ import json
 from types import SimpleNamespace
 
 from backend.event_bus.models import TradingEvent, TradingEventEnvelope
+from backend.regime.models import MarketRegime, RegimeSnapshot
 from backend.trading import dispatch_trade_proposal, normalize_trade_proposal, paired_proposal_from_legs
 from backend.trading.models import ExecutionRequest, PolicyDecision, RiskRejectionReason, TradeProposalLeg
 from backend.trading.policy_engine import evaluate_trade_proposal
+
+
+def _mock_regime_trend_up(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.trading.policy_engine.get_current_regime",
+        lambda **kwargs: RegimeSnapshot(regime=MarketRegime.TREND_UP),
+    )
 
 
 def _proposal_payload() -> dict[str, object]:
@@ -51,6 +59,7 @@ def test_policy_decision_is_typed_and_deterministic(monkeypatch) -> None:
             }
         },
     )
+    _mock_regime_trend_up(monkeypatch)
 
     decision = evaluate_trade_proposal(_proposal_payload())
 
@@ -85,6 +94,7 @@ def test_policy_decision_marks_live_blocker_rejections(monkeypatch) -> None:
             }
         },
     )
+    _mock_regime_trend_up(monkeypatch)
 
     decision = evaluate_trade_proposal(_proposal_payload())
 

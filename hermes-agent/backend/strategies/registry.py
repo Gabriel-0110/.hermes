@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StrategyDefinition(BaseModel):
@@ -17,6 +17,7 @@ class StrategyDefinition(BaseModel):
     timeframes: list[str]
     universe_filter: str = "all"  # "all" | "large_cap" | "defi" etc.
     min_confidence: float = 0.25
+    allowed_regimes: set[str] = Field(default_factory=lambda: {"trend_up", "trend_down", "range", "high_vol", "unknown"})
 
 
 class ScoredCandidate(BaseModel):
@@ -50,6 +51,7 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         timeframes=["1h", "4h", "1d"],
         universe_filter="all",
         min_confidence=0.25,
+        allowed_regimes={"trend_up", "trend_down"},
     ),
     "mean_reversion": StrategyDefinition(
         name="mean_reversion",
@@ -63,6 +65,7 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         timeframes=["1h", "4h"],
         universe_filter="all",
         min_confidence=0.25,
+        allowed_regimes={"range"},
     ),
     "breakout": StrategyDefinition(
         name="breakout",
@@ -76,6 +79,7 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         timeframes=["4h", "1d"],
         universe_filter="all",
         min_confidence=0.25,
+        allowed_regimes={"trend_up", "trend_down"},
     ),
     "delta_neutral_carry": StrategyDefinition(
         name="delta_neutral_carry",
@@ -88,6 +92,7 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         timeframes=["8h"],
         universe_filter="large_cap",
         min_confidence=0.0,
+        allowed_regimes={"trend_up", "trend_down", "range", "high_vol", "unknown"},
     ),
     "whale_follower": StrategyDefinition(
         name="whale_follower",
@@ -102,6 +107,7 @@ STRATEGY_REGISTRY: dict[str, StrategyDefinition] = {
         timeframes=["30m"],
         universe_filter="large_cap",
         min_confidence=0.25,
+        allowed_regimes={"trend_up", "trend_down", "range", "unknown"},
     ),
 }
 

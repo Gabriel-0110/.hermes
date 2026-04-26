@@ -11,7 +11,7 @@ from threading import Lock
 from sqlalchemy import desc, select
 
 from backend.db import ensure_time_series_schema, session_scope
-from backend.db.models import StrategyEvaluationRow
+from backend.db.models import StrategyEvaluationRow, StrategyWeightOverrideRow
 from backend.db.session import get_engine
 
 logger = logging.getLogger(__name__)
@@ -108,14 +108,46 @@ def get_strategy_prior(
     return prior
 
 
+def get_override_weight(
+    strategy_name: str,
+    *,
+    symbol: str = "*",
+    regime: str = "*",
+    database_url: str | None = None,
+) -> float | None:
+    normalized = str(strategy_name or "").strip().lower()
+    if not normalized:
+        return None
+    try:
+        ensure_time_series_schema(get_engine(database_url=database_url))
+        with session_scope(database_url=database_url) as session:
+            from sqlalchemy import select as sa_select
+            row = session.scalars(
+                sa_select(StrategyWeightOverrideRow)
+                .where(StrategyWeightOverrideRow.strategy == normalized)
+                .where(StrategyWeightOverrideRow.symbol == symbol)
+                .where(StrategyWeightOverrideRow.regime == regime)
+                .limit(1)
+            ).first()
+            if row is not None:
+                return float(row.weight)
+    except Exception as exc:
+        logger.debug("override weight lookup failed for %s: %s", normalized, exc)
+    return None
+
+
 def scale_confidence_by_prior(
     strategy_name: str,
     confidence: float,
     *,
     database_url: str | None = None,
+    symbol: str = "*",
+    regime: str = "*",
 ) -> tuple[float, StrategyConfidencePrior]:
     prior = get_strategy_prior(strategy_name, database_url=database_url)
-    scaled = round(min(max(float(confidence) * prior.multiplier, 0.01), 0.99), 2)
+    override = get_override_weight(strategy_name, symbol=symbol, regime=regime, database_url=database_url)
+    multiplier = override if override is not None else prior.multiplier
+    scaled = round(min(max(float(confidence) * multiplier, 0.01), 0.99), 2)
     return scaled, prior
 
 

@@ -1199,6 +1199,98 @@ class VenueExecutionClient:
             "follow_ups": follow_ups,
         }
 
+    def modify_bracket_order(
+        self,
+        *,
+        order_id: str,
+        symbol: str,
+        new_trigger_price: float,
+        price_type: int = 1,
+    ) -> dict[str, Any]:
+        """Modify an existing TP/SL bracket order's trigger price.
+
+        Uses BitMart's /contract/private/modify-tp-sl-order endpoint.
+        Fails closed: returns failure dict on any error without cancelling
+        the existing bracket.
+        """
+        self.require_credentials()
+        exchange = self._get_exchange()
+        self._ensure_markets_loaded()
+        market = exchange.market(symbol)
+        market_symbol = market.get("id") or symbol
+
+        body: dict[str, Any] = {
+            "order_id": order_id,
+            "trigger_price": exchange.price_to_precision(symbol, new_trigger_price),
+            "executive_price": exchange.price_to_precision(symbol, new_trigger_price),
+            "price_type": price_type,
+        }
+
+        base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
+        modify_path = "/contract/private/modify-tp-sl-order"
+
+        self._record_execution_telemetry(
+            event_type="bracket_modify_requested",
+            status="requested",
+            symbol=symbol,
+            payload={"order_id": order_id, "new_trigger_price": new_trigger_price},
+        )
+
+        try:
+            signed = self._build_bitmart_signed_futures_request(body)
+            url = f"{base_url}{modify_path}"
+            response = requests.post(url, data=signed["body_json"], headers=signed["headers"], timeout=30)
+        except Exception as exc:
+            result = {
+                "status": "failed",
+                "order_id": order_id,
+                "failure_category": "network_or_api_failure",
+                "error": str(exc),
+            }
+            self._record_execution_telemetry(
+                event_type="bracket_modify_failed",
+                status="failed",
+                symbol=symbol,
+                payload=result,
+                error_message=str(exc),
+            )
+            return result
+
+        try:
+            resp_data = response.json()
+        except Exception:
+            resp_data = {}
+
+        if response.status_code >= 400 or resp_data.get("code") != 1000:
+            message = str(resp_data.get("message") or response.text[:300])
+            result = {
+                "status": "failed",
+                "order_id": order_id,
+                "failure_category": _classify_bracket_failure(response.status_code, message),
+                "error": message,
+            }
+            self._record_execution_telemetry(
+                event_type="bracket_modify_failed",
+                status=result["failure_category"],
+                symbol=symbol,
+                payload=result,
+                error_message=message,
+            )
+            return result
+
+        result = {
+            "status": "modified",
+            "order_id": order_id,
+            "new_trigger_price": exchange.price_to_precision(symbol, new_trigger_price),
+        }
+        self._record_execution_telemetry(
+            event_type="bracket_modify_succeeded",
+            status="modified",
+            symbol=symbol,
+            payload=result,
+        )
+        return result
+
     def cancel_order(self, *, order_id: str, symbol: str | None = None) -> ExecutionOrder:
         exchange = self._get_exchange()
         self._record_execution_telemetry(

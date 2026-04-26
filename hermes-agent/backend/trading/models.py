@@ -140,6 +140,7 @@ class RiskRejectionReason(StrEnum):
     EXCHANGE_NOT_CONFIGURED = "exchange_not_configured"
     EXECUTION_FAILED = "execution_failed"
     DRAWDOWN_LIMIT_BREACHED = "drawdown_limit_breached"
+    REGIME_MISMATCH = "regime_mismatch"
 
 
 class PolicyDecision(BaseModel):
@@ -198,6 +199,9 @@ class ExecutionRequest(BaseModel):
     timeframe: str | None = Field(default=None, max_length=32)
     stop_loss_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
+    trailing_stop_distance_bps: float | None = Field(default=None, ge=0)
+    time_stop_minutes: float | None = Field(default=None, gt=0)
+    max_adverse_excursion_bps: float | None = Field(default=None, gt=0)
     leverage: float | None = Field(default=None, gt=0)
     margin_mode: Literal["cross", "isolated"] | None = None
     stop_guidance: str | None = Field(default=None, max_length=2000)
@@ -260,6 +264,7 @@ class ExecutionResult(BaseModel):
     correlation_id: str | None = Field(default=None, max_length=120)
     workflow_id: str | None = Field(default=None, max_length=120)
     payload: dict[str, Any] = Field(default_factory=dict)
+    bracket_modifications: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("symbol")
     @classmethod

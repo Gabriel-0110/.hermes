@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from backend.integrations.execution.mode import current_trading_mode, live_trading_blockers
+from backend.regime.detector import get_current_regime
+from backend.regime.models import MarketRegime
+from backend.strategies.registry import STRATEGY_REGISTRY, resolve_strategy_name
 from backend.tools.get_portfolio_state import get_portfolio_state
 from backend.tools.get_risk_approval import get_risk_approval
 
 from .models import PolicyDecision, RiskRejectionReason, TradeProposal
 from .safety import approval_required, get_kill_switch_state
+
+logger = logging.getLogger(__name__)
 
 
 def _portfolio_warnings() -> list[str]:
@@ -94,6 +100,28 @@ def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
         trace.append("risk_gate=rejected")
     else:
         trace.append("risk_gate=approved")
+
+    try:
+        regime_snapshot = get_current_regime()
+        current_regime = regime_snapshot.regime
+    except Exception:
+        current_regime = MarketRegime.UNKNOWN
+    trace.append(f"regime={current_regime}")
+
+    strategy_key = resolve_strategy_name(proposal.strategy_id, proposal.strategy_template_id)
+    strategy_def = STRATEGY_REGISTRY.get(strategy_key) if strategy_key else None
+    if strategy_def is not None:
+        if current_regime not in strategy_def.allowed_regimes:
+            blockers.append(
+                f"Regime mismatch: current regime is '{current_regime}', "
+                f"but strategy '{strategy_def.name}' is only allowed in {sorted(strategy_def.allowed_regimes)}."
+            )
+            rejection_reasons.append(RiskRejectionReason.REGIME_MISMATCH)
+            trace.append("regime_gate=rejected")
+        else:
+            trace.append("regime_gate=approved")
+    else:
+        trace.append("regime_gate=skipped")
 
     approved_size_usd = proposal.requested_size_usd
     if max_size_usd is not None:

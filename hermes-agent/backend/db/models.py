@@ -753,6 +753,26 @@ class CopyTraderSwitchProposalRow(Base):
     )
 
 
+class StrategyWeightOverrideRow(Base):
+    __tablename__ = "strategy_weight_overrides"
+    __table_args__ = (
+        Index("ix_strategy_weight_overrides_lookup", "strategy", "symbol", "regime", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("swo"))
+    strategy: Mapped[str] = mapped_column(String(120), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False, default="*")
+    regime: Mapped[str] = mapped_column(String(32), nullable=False, default="*")
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    evidence_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=func.now(),
+    )
+
+
 class OperatorSnapshotRow(Base):
     __tablename__ = "operator_snapshots"
     __table_args__ = (

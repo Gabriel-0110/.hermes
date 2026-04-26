@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import desc, select
 
 from backend.db import ensure_time_series_schema, session_scope
-from backend.db.models import AgentSignalRow, ExecutionEventRow, PortfolioSnapshotRow, StrategyEvaluationRow
+from backend.db.models import AgentSignalRow, ExecutionEventRow, PortfolioSnapshotRow, StrategyEvaluationRow, StrategyWeightOverrideRow
 from backend.db.session import get_engine
 from backend.strategies.performance_priors import clear_strategy_prior_cache, strategy_prior_from_pnls
 
@@ -195,6 +195,29 @@ def run_strategy_evaluator(
 
         summary.updated_rows = len(summary.updates)
         summary.skipped_rows = max(summary.skipped_rows, summary.scanned_rows - summary.updated_rows)
+
+        for strategy_name, prior_payload in summary.priors.items():
+            weight = round(max(0.1, min(3.0, prior_payload["multiplier"])), 4)
+            existing = session.scalars(
+                select(StrategyWeightOverrideRow)
+                .where(StrategyWeightOverrideRow.strategy == strategy_name)
+                .where(StrategyWeightOverrideRow.symbol == "*")
+                .where(StrategyWeightOverrideRow.regime == "*")
+                .limit(1)
+            ).first()
+            if existing is not None:
+                existing.weight = weight
+                existing.evidence_json = prior_payload
+                existing.updated_at = now
+            else:
+                session.add(StrategyWeightOverrideRow(
+                    strategy=strategy_name,
+                    symbol="*",
+                    regime="*",
+                    weight=weight,
+                    evidence_json=prior_payload,
+                    updated_at=now,
+                ))
 
     clear_strategy_prior_cache()
     return summary

@@ -1049,3 +1049,159 @@ def test_execution_outcome_keeps_typed_request_and_result_fields():
     assert outcome.request.request_id == "exec_req_test"
     assert outcome.request.idempotency_key
     assert outcome.result.status == "filled"
+
+
+# ---------------------------------------------------------------------------
+# modify_bracket_order tests
+# ---------------------------------------------------------------------------
+
+
+def test_modify_bracket_order_success(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def amount_to_precision(self, symbol, amount):
+            return "1"
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"code":1000,"message":"Ok","data":{}}'
+
+        def json(self):
+            return {"code": 1000, "message": "Ok", "data": {}}
+
+    captured_urls: list[str] = []
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured_urls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
+
+    result = client.modify_bracket_order(
+        order_id="tp-123",
+        symbol="BTCUSDT",
+        new_trigger_price=69000.0,
+    )
+
+    assert result["status"] == "modified"
+    assert result["order_id"] == "tp-123"
+    assert result["new_trigger_price"] == "69000.0"
+    assert any(url.endswith("/contract/private/modify-tp-sl-order") for url in captured_urls)
+
+
+def test_modify_bracket_order_exchange_rejection(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeResponse:
+        status_code = 400
+        text = '{"code":40035,"message":"Invalid trigger price"}'
+
+        def json(self):
+            return {"code": 40035, "message": "Invalid trigger price"}
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module.requests, "post", lambda *a, **kw: FakeResponse())
+
+    result = client.modify_bracket_order(
+        order_id="tp-456",
+        symbol="BTCUSDT",
+        new_trigger_price=69000.0,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failure_category"] == "exchange_validation_failed"
+
+
+def test_modify_bracket_order_network_failure(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    def fake_post(*args, **kwargs):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module.requests, "post", fake_post)
+
+    result = client.modify_bracket_order(
+        order_id="sl-789",
+        symbol="BTCUSDT",
+        new_trigger_price=62000.0,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failure_category"] == "network_or_api_failure"
+
+
+def test_modify_bracket_order_auth_failure(monkeypatch):
+    monkeypatch.setenv("BITMART_API_KEY", "key")
+    monkeypatch.setenv("BITMART_SECRET", "secret")
+    monkeypatch.setenv("BITMART_MEMO", "memo")
+    monkeypatch.setenv("BITMART_UID", "uid")
+
+    client = VenueExecutionClient("bitmart")
+
+    class FakeExchange:
+        def market(self, symbol):
+            return {"id": "BTCUSDT", "symbol": symbol}
+
+        def price_to_precision(self, symbol, price):
+            return f"{price:.1f}"
+
+    class FakeResponse:
+        status_code = 401
+        text = '{"code":50004,"message":"Unauthorized: signature mismatch"}'
+
+        def json(self):
+            return {"code": 50004, "message": "Unauthorized: signature mismatch"}
+
+    monkeypatch.setattr(client, "_ensure_markets_loaded", lambda public=False: None)
+    monkeypatch.setattr(client, "_get_exchange", lambda: FakeExchange())
+    monkeypatch.setattr(multi_venue_module.requests, "post", lambda *a, **kw: FakeResponse())
+
+    result = client.modify_bracket_order(
+        order_id="tp-auth",
+        symbol="BTCUSDT",
+        new_trigger_price=69000.0,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failure_category"] == "auth_failed"
