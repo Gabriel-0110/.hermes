@@ -146,6 +146,10 @@ def get_strategy_scorer(strategy_name: str) -> StrategyScorer:
         from backend.strategies.breakout import score_breakout
 
         return score_breakout
+    if normalized == "whale_follower":
+        from backend.strategies.whale_follower import score_whale_follower
+
+        return score_whale_follower
 
     raise ValueError(
         f"No scorer registered for strategy {strategy_name!r}. Available: {sorted(STRATEGY_REGISTRY)}"

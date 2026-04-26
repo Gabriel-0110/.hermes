@@ -150,7 +150,7 @@ class PolicyDecision(BaseModel):
     proposal_id: str
     evaluated_at: str = Field(default_factory=_utcnow_iso)
     status: Literal["approved", "rejected", "manual_review"]
-    execution_mode: Literal["paper", "live"]
+    execution_mode: Literal["disabled", "paper", "live"]
     approved: bool
     approved_size_usd: float | None = Field(default=None, ge=0)
     requires_operator_approval: bool = False
@@ -198,6 +198,8 @@ class ExecutionRequest(BaseModel):
     timeframe: str | None = Field(default=None, max_length=32)
     stop_loss_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
+    leverage: float | None = Field(default=None, gt=0)
+    margin_mode: Literal["cross", "isolated"] | None = None
     stop_guidance: str | None = Field(default=None, max_length=2000)
     source_agent: str | None = Field(default=None, min_length=2, max_length=120)
     policy_trace: list[str] = Field(default_factory=list)
@@ -252,7 +254,7 @@ class ExecutionResult(BaseModel):
     order_id: str | None = Field(default=None, max_length=160)
     status: Literal["paper_filled", "filled", "failed", "blocked"]
     success: bool
-    execution_mode: Literal["paper", "live"]
+    execution_mode: Literal["disabled", "paper", "live"]
     reason: RiskRejectionReason | None = None
     error_message: str | None = Field(default=None, max_length=2000)
     correlation_id: str | None = Field(default=None, max_length=120)
@@ -269,7 +271,7 @@ class ExecutionResult(BaseModel):
         cls,
         *,
         symbol: str,
-        execution_mode: Literal["paper", "live"],
+        execution_mode: Literal["disabled", "paper", "live"],
         reason: RiskRejectionReason,
         correlation_id: str | None = None,
         workflow_id: str | None = None,
@@ -295,7 +297,7 @@ class ExecutionResult(BaseModel):
         *,
         symbol: str,
         order_id: str | None,
-        execution_mode: Literal["paper", "live"],
+        execution_mode: Literal["disabled", "paper", "live"],
         correlation_id: str | None = None,
         workflow_id: str | None = None,
         payload: dict[str, Any] | None = None,
@@ -357,7 +359,7 @@ class ExecutionDispatchResult(BaseModel):
     proposal_id: str
     dispatched_at: str = Field(default_factory=_utcnow_iso)
     status: Literal["queued", "blocked", "manual_review"]
-    execution_mode: Literal["paper", "live"]
+    execution_mode: Literal["disabled", "paper", "live"]
     event_type: str = "execution_requested"
     correlation_id: str
     workflow_id: str

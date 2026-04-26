@@ -8,7 +8,11 @@ LEGACY_AGENT_COMPOSE := docker compose -f hermes-agent/docker-compose.yml --proj
 LEGACY_LITELLM_COMPOSE := docker compose -f hermes-agent/docker-compose.litellm.yml --project-directory hermes-agent
 LEGACY_CONTAINER_NAMES := hermes-postgres hermes-api hermes-web hermes-redis hermes-timescaledb hermes-litellm hermes-agent-hermes-1 hermes-dashboard
 
-.PHONY: dev-bootstrap dev-help dev-up dev-down dev-logs dev-ps dev-check dev-clean-legacy
+VENV_PYTHON ?= .venv/bin/python
+VENV_PYTEST ?= .venv/bin/pytest
+HERMES_AGENT := hermes-agent
+
+.PHONY: dev-bootstrap dev-help dev-up dev-down dev-logs dev-ps dev-check dev-clean-legacy test lint typecheck
 
 dev-help:
 	@echo "Hermes local development"
@@ -77,3 +81,16 @@ dev-check:
 	echo "  API          $${HERMES_API_PORT:-8000}"; \
 	echo "  Web          $${HERMES_WEB_PORT:-3000}"; \
 	echo "  Mission Ctrl $${HERMES_MISSION_CONTROL_PORT:-3100}"
+
+# --------------------------------------------------------------------------
+# Quality gates
+# --------------------------------------------------------------------------
+
+test:
+	cd $(HERMES_AGENT) && $(VENV_PYTEST) tests/backend tests/tools tests/hermes_cli -q
+
+lint:
+	cd $(HERMES_AGENT) && $(VENV_PYTHON) -m ruff check .
+
+typecheck:
+	cd $(HERMES_AGENT) && $(VENV_PYTHON) -m mypy --ignore-missing-imports backend/

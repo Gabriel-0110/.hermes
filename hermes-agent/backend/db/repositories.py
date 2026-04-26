@@ -21,6 +21,7 @@ from .models import (
     ReplayCaseRow,
     ReplayResultRow,
     ReplayRunRow,
+    OperatorSnapshotRow,
     RiskLimitRow,
     RiskEventRow,
     SystemErrorRow,
@@ -902,6 +903,38 @@ class HermesTimeSeriesRepository:
     def list_risk_limits(self) -> list[RiskLimitRow]:
         statement = select(RiskLimitRow).order_by(RiskLimitRow.scope.asc())
         return list(self.session.scalars(statement))
+
+    def insert_operator_snapshot(
+        self,
+        *,
+        exchange: str,
+        as_of_utc: datetime,
+        raw_json: dict[str, Any],
+        total_equity_usd: float | None = None,
+        available_usd: float | None = None,
+        invested_usd: float | None = None,
+        unrealized_pnl_usd: float | None = None,
+        divergence_summary: dict[str, Any] | None = None,
+    ) -> OperatorSnapshotRow:
+        row = OperatorSnapshotRow(
+            exchange=exchange,
+            as_of_utc=as_of_utc,
+            raw_json=raw_json,
+            total_equity_usd=total_equity_usd,
+            available_usd=available_usd,
+            invested_usd=invested_usd,
+            unrealized_pnl_usd=unrealized_pnl_usd,
+            divergence_summary=divergence_summary,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def get_latest_operator_snapshot(self, exchange: str | None = None) -> OperatorSnapshotRow | None:
+        statement = select(OperatorSnapshotRow).order_by(desc(OperatorSnapshotRow.as_of_utc)).limit(1)
+        if exchange:
+            statement = statement.where(OperatorSnapshotRow.exchange == exchange)
+        return self.session.scalars(statement).first()
 
     def insert_system_error(
         self,

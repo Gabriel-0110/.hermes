@@ -24,14 +24,18 @@ def _is_truthy(value: str | None) -> bool:
 
 def current_trading_mode() -> str:
     mode = os.getenv("HERMES_TRADING_MODE", "paper").strip().lower()
-    return mode if mode in {"paper", "live"} else "paper"
+    return mode if mode in {"disabled", "paper", "live"} else "paper"
+
+
+def is_disabled_mode() -> bool:
+    return current_trading_mode() == "disabled"
 
 
 def is_paper_mode() -> bool:
     explicit = os.getenv("HERMES_PAPER_MODE")
     if explicit is not None and explicit.strip() != "":
         return _is_truthy(explicit)
-    return current_trading_mode() != "live"
+    return current_trading_mode() not in {"live", "disabled"}
 
 
 def live_trading_blockers() -> list[str]:

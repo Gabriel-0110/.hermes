@@ -53,7 +53,7 @@ class TestGatewayDoctorHelpers:
         monkeypatch.setattr(
             gateway_cli,
             "gateway_doctor",
-            lambda json_output=False: calls.append(json_output),
+            lambda json_output=False, reset=False, force=False: calls.append(json_output),
         )
 
         gateway_cli.gateway_command(SimpleNamespace(gateway_command="doctor", json=True))

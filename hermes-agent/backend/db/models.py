@@ -751,3 +751,26 @@ class CopyTraderSwitchProposalRow(Base):
         server_default=func.now(),
         onupdate=lambda: datetime.now(UTC),
     )
+
+
+class OperatorSnapshotRow(Base):
+    __tablename__ = "operator_snapshots"
+    __table_args__ = (
+        Index("ix_operator_snapshots_exchange_time", "exchange", "as_of_utc"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True, default=lambda: _new_id("snap"))
+    exchange: Mapped[str] = mapped_column(String(64), nullable=False)
+    as_of_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    total_equity_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    available_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    invested_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unrealized_pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    divergence_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )

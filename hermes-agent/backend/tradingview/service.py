@@ -205,6 +205,13 @@ class TradingViewIngestionService:
         for event in stream_events:
             try:
                 envelope = self.event_publisher.publish(event)
+                if envelope is None:
+                    logger.warning(
+                        "TradingView Redis publish returned None envelope: event_type=%s alert_id=%s",
+                        event.event_type,
+                        alert.id,
+                    )
+                    continue
                 logger.info(
                     "TradingView Redis publish succeeded: event_type=%s alert_id=%s redis_id=%s",
                     event.event_type,

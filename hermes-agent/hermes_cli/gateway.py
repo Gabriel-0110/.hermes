@@ -1841,8 +1841,54 @@ def _gateway_doctor_report() -> dict[str, object]:
     }
 
 
-def gateway_doctor(json_output: bool = False) -> None:
+def gateway_doctor_reset(*, force: bool = False) -> None:
+    """Clear stale gateway runtime state files, backing up before removal.
+
+    Refuses to reset if the gateway PID is still alive unless *force* is True.
+    """
+    import shutil
+
+    state_path = get_authoritative_gateway_state_path()
+    processes_path = state_path.parent / "processes.json"
+
+    state_data = _read_json_dict(state_path) or {}
+    pid = state_data.get("pid")
+    if pid is not None:
+        try:
+            os.kill(int(pid), 0)
+            if not force:
+                print_error(
+                    f"Gateway PID {pid} is still alive. "
+                    "Stop the gateway first, or pass --force to override."
+                )
+                return
+            print_warning(f"Gateway PID {pid} is alive — forcing reset as requested.")
+        except (OSError, ValueError):
+            pass
+
+    backup_dir = state_path.parent / ".gateway_reset_backup"
+    backup_dir.mkdir(exist_ok=True)
+
+    cleared: list[str] = []
+    for path in [state_path, processes_path]:
+        if path.exists():
+            backup_dest = backup_dir / path.name
+            shutil.copy2(path, backup_dest)
+            path.write_text("{}" if path.name == "processes.json" else "{}")
+            cleared.append(str(path))
+
+    if cleared:
+        print_info(f"Backed up to {backup_dir} and cleared: {', '.join(cleared)}")
+    else:
+        print_info("No stale state files found — nothing to reset.")
+
+
+def gateway_doctor(json_output: bool = False, reset: bool = False, force: bool = False) -> None:
     """Inspect gateway services, state files, and token ownership across profiles."""
+    if reset:
+        gateway_doctor_reset(force=force)
+        return
+
     report = _gateway_doctor_report()
 
     if json_output:
@@ -3201,7 +3247,11 @@ def gateway_command(args):
         return
 
     if subcmd == "doctor":
-        gateway_doctor(json_output=getattr(args, "json", False))
+        gateway_doctor(
+            json_output=getattr(args, "json", False),
+            reset=getattr(args, "reset", False),
+            force=getattr(args, "force", False),
+        )
         return
 
     # Service management commands

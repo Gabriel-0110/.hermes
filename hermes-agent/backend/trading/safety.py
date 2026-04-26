@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from backend.integrations.execution.mode import current_trading_mode, live_trading_blockers
+from backend.integrations.execution.mode import current_trading_mode, is_disabled_mode, live_trading_blockers
 from backend.redis_client import get_redis_client
 
 _KILL_SWITCH_KEY = "hermes:risk:kill_switch"
@@ -49,6 +49,16 @@ def approval_required() -> bool:
 
 def evaluate_execution_safety(*, approval_id: str | None = None) -> ExecutionSafetyDecision:
     mode = current_trading_mode()
+
+    if mode == "disabled":
+        return ExecutionSafetyDecision(
+            execution_mode="disabled",
+            blockers=["Trading is disabled. Set HERMES_TRADING_MODE to 'paper' or 'live' to enable."],
+            approval_required=False,
+            kill_switch_active=False,
+            kill_switch_reason=None,
+        )
+
     blockers = list(live_trading_blockers()) if mode == "live" else []
 
     kill_switch = get_kill_switch_state()
@@ -60,7 +70,7 @@ def evaluate_execution_safety(*, approval_id: str | None = None) -> ExecutionSaf
             + (f" Reason: {kill_switch_reason}" if kill_switch_reason else "")
         )
 
-    requires_approval = mode == "live" and approval_required() and not approval_id
+    requires_approval = approval_required() and not approval_id
 
     return ExecutionSafetyDecision(
         execution_mode="live" if mode == "live" else "paper",

@@ -39,6 +39,11 @@ tmp/
 
 # Local compiled tools
 bin/tirith
+profiles/*/bin/tirith
+
+# Generated profile artifacts
+profiles/*/cron/.tick.lock
+profiles/*/skills/.bundled_manifest
 
 # Local environment / auth / machine-specific config
 .env
@@ -71,6 +76,10 @@ cron/jobs.json
 memories/
 skills/.hub/index-cache/
 reports/
+
+# Debug capture artifacts
+port*.html
+response_*.html
 
 # Gateway / app state
 channel_directory.json

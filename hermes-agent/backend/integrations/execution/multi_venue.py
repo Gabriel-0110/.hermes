@@ -157,6 +157,43 @@ _VENUE_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 
+def notify_bracket_attachment_failed(*, symbol: str, order_id: str, failures: dict[str, Any]) -> None:
+    logger.warning(
+        "Bracket attachment failed for symbol=%s order_id=%s failures=%s",
+        symbol, order_id, list(failures.keys()),
+    )
+    try:
+        get_observability_service().record_execution_event(
+            event_type="bracket_attachment_failed",
+            status="failed",
+            symbol=symbol,
+            payload={"order_id": order_id, "failures": failures},
+        )
+    except Exception as exc:
+        logger.debug("Failed to record bracket_attachment_failed event: %s", exc)
+
+
+def _classify_bracket_failure(status_code: int, message: str) -> str:
+    lowered = message.lower()
+    auth_terms = ("auth", "signature", "sign", "key", "permission", "unauthorized", "memo")
+    if status_code in {401, 403} or any(term in lowered for term in auth_terms):
+        return "auth_failed"
+    if status_code == 429 or "rate limit" in lowered:
+        return "network_or_api_failure"
+    if status_code >= 500 or "connection" in lowered or "timeout" in lowered:
+        return "network_or_api_failure"
+    return "exchange_validation_failed"
+
+
+def _safe_child_client_order_id(parent_id: str | None, label: str) -> str | None:
+    if not parent_id:
+        return None
+    suffix = label[:2]
+    max_len = 32
+    base = parent_id[: max_len - len(suffix)]
+    return (base + suffix)[:max_len]
+
+
 class VenueExecutionClient:
     """Venue-aware backend execution adapter with BitMart as the default venue."""
 
@@ -479,6 +516,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: str | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -491,6 +532,10 @@ class VenueExecutionClient:
             "order_type": order_type,
             "amount": amount,
             "price": price,
+            "stop_loss_price": stop_loss_price,
+            "take_profit_price": take_profit_price,
+            "leverage": leverage,
+            "margin_mode": margin_mode,
             "client_order_id": client_order_id,
             "time_in_force": time_in_force,
             "post_only": post_only,
@@ -510,6 +555,10 @@ class VenueExecutionClient:
                 order_type=order_type,
                 amount=amount,
                 price=price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                leverage=leverage,
+                margin_mode=margin_mode,
                 client_order_id=client_order_id,
                 time_in_force=time_in_force,
                 post_only=post_only,
@@ -558,6 +607,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: str | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -571,6 +624,10 @@ class VenueExecutionClient:
                 order_type=order_type,
                 amount=amount,
                 price=price,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price,
+                leverage=leverage,
+                margin_mode=margin_mode,
                 client_order_id=client_order_id,
                 time_in_force=time_in_force,
                 post_only=post_only,
@@ -859,6 +916,10 @@ class VenueExecutionClient:
         order_type: str,
         amount: float,
         price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: str | None = None,
         client_order_id: str | None = None,
         time_in_force: str | None = None,
         post_only: bool = False,
@@ -899,7 +960,16 @@ class VenueExecutionClient:
         if client_order_id:
             request["client_order_id"] = client_order_id
         if not reduce_only:
-            request["open_type"] = os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross").strip().lower() or "cross"
+            resolved_margin_mode = (margin_mode or os.getenv(f"{self._env_prefix}_MARGIN_MODE", "cross")).strip().lower() or "cross"
+            request["open_type"] = resolved_margin_mode
+        if leverage is not None:
+            request["leverage"] = str(int(leverage)) if leverage == int(leverage) else str(leverage)
+        if take_profit_price is not None:
+            request["preset_take_profit_price"] = exchange.price_to_precision(symbol, take_profit_price)
+            request["preset_take_profit_price_type"] = 1
+        if stop_loss_price is not None:
+            request["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
+            request["preset_stop_loss_price_type"] = 1
 
         signed = self._build_bitmart_signed_futures_request(request)
         logger.info("Submitting BITMART direct futures order for %s %s %s", symbol, side, order_type_normalized)
@@ -929,8 +999,43 @@ class VenueExecutionClient:
 
         data = payload.get("data") or {}
         submitted_at = datetime.now(timezone.utc).isoformat()
+        order_id = str(data.get("order_id") or data.get("orderId") or "")
+
+        order_metadata: dict[str, Any] = {}
+        if leverage is not None:
+            order_metadata["leverage"] = str(int(leverage)) if leverage == int(leverage) else str(leverage)
+
+        bracket_orders: dict[str, dict[str, Any]] = {}
+        if take_profit_price is not None or stop_loss_price is not None:
+            bracket_targets = []
+            if take_profit_price is not None:
+                bracket_targets.append(("take_profit", take_profit_price))
+            if stop_loss_price is not None:
+                bracket_targets.append(("stop_loss", stop_loss_price))
+
+            for label, trigger_price in bracket_targets:
+                bracket_orders[label] = self._submit_bitmart_tp_sl_follow_up(
+                    symbol=symbol,
+                    market_symbol=market_symbol,
+                    exchange=exchange,
+                    label=label,
+                    trigger_price=trigger_price,
+                )
+
+            all_ok = all(b["status"] == "submitted" for b in bracket_orders.values())
+            order_metadata["bitmart_bracket_status"] = "submitted" if all_ok else "partial_failure"
+            order_metadata["bitmart_bracket_orders"] = bracket_orders
+
+            failures = {k: v for k, v in bracket_orders.items() if v["status"] == "failed"}
+            if failures:
+                notify_bracket_attachment_failed(
+                    symbol=symbol,
+                    order_id=order_id,
+                    failures=failures,
+                )
+
         return ExecutionOrder(
-            order_id=str(data.get("order_id") or data.get("orderId") or ""),
+            order_id=order_id,
             exchange=self.provider.name,
             symbol=symbol,
             side=side,
@@ -948,7 +1053,150 @@ class VenueExecutionClient:
             reduce_only=reduce_only,
             created_at=submitted_at,
             updated_at=submitted_at,
+            metadata=order_metadata or None,
         )
+
+    def _submit_bitmart_tp_sl_follow_up(
+        self,
+        *,
+        symbol: str,
+        market_symbol: str,
+        exchange: Any,
+        label: str,
+        trigger_price: float,
+    ) -> dict[str, Any]:
+        tp_sl_type = "take_profit" if label == "take_profit" else "stop_loss"
+        body: dict[str, Any] = {
+            "symbol": market_symbol,
+            "type": tp_sl_type,
+            "side": 2,
+            "size": 0,
+            "trigger_price": exchange.price_to_precision(symbol, trigger_price),
+            "executive_price": exchange.price_to_precision(symbol, trigger_price),
+            "price_type": 1,
+            "plan_category": 2,
+            "category": "market",
+        }
+        base_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip().rstrip("/") or _BITMART_DIRECT_FUTURES_BASE_URL
+        tp_sl_path = "/contract/private/submit-tp-sl-order"
+        try:
+            signed = self._build_bitmart_signed_futures_request(body)
+            signed_url = f"{base_url}{tp_sl_path}"
+            response = requests.post(signed_url, data=signed["body_json"], headers=signed["headers"], timeout=30)
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "trigger_price": exchange.price_to_precision(symbol, trigger_price),
+                "failure_category": "network_or_api_failure",
+                "error": str(exc),
+            }
+
+        try:
+            resp_data = response.json()
+        except Exception:
+            resp_data = {}
+
+        if response.status_code >= 400 or resp_data.get("code") != 1000:
+            message = str(resp_data.get("message") or response.text[:300])
+            return {
+                "status": "failed",
+                "trigger_price": exchange.price_to_precision(symbol, trigger_price),
+                "failure_category": _classify_bracket_failure(response.status_code, message),
+                "error": message,
+            }
+
+        return {
+            "status": "submitted",
+            "trigger_price": exchange.price_to_precision(symbol, trigger_price),
+            "order_id": str((resp_data.get("data") or {}).get("order_id", "")),
+        }
+
+    def preview_order_request(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        leverage: float | None = None,
+        margin_mode: str | None = None,
+        client_order_id: str | None = None,
+        time_in_force: str | None = None,
+        post_only: bool = False,
+        reduce_only: bool = False,
+        position_side: str | None = None,
+    ) -> dict[str, Any]:
+        exchange = self._get_public_exchange()
+        market = exchange.market(symbol)
+        market_symbol = market.get("id") or symbol
+        order_type_normalized = (order_type or "").strip().lower()
+        size_precise = exchange.amount_to_precision(symbol, amount)
+        size = int(float(size_precise))
+
+        entry_body: dict[str, Any] = {
+            "symbol": market_symbol,
+            "type": order_type_normalized,
+            "side": self._bitmart_swap_side_code(side=side, reduce_only=reduce_only, position_side=position_side),
+            "size": size,
+        }
+        if order_type_normalized == "limit" and price is not None:
+            entry_body["price"] = exchange.price_to_precision(symbol, price)
+        if client_order_id:
+            entry_body["client_order_id"] = client_order_id
+        if not reduce_only:
+            resolved_margin_mode = (margin_mode or "cross").strip().lower()
+            entry_body["open_type"] = resolved_margin_mode
+        if leverage is not None:
+            entry_body["leverage"] = str(int(leverage)) if leverage == int(leverage) else str(leverage)
+        if take_profit_price is not None:
+            entry_body["preset_take_profit_price"] = exchange.price_to_precision(symbol, take_profit_price)
+            entry_body["preset_take_profit_price_type"] = 1
+        if stop_loss_price is not None:
+            entry_body["preset_stop_loss_price"] = exchange.price_to_precision(symbol, stop_loss_price)
+            entry_body["preset_stop_loss_price_type"] = 1
+
+        signed = self._build_bitmart_signed_futures_request(entry_body)
+        safe_headers = dict(signed["headers"])
+        safe_headers["X-BM-KEY"] = "***"
+        safe_headers["X-BM-SIGN"] = "***"
+
+        follow_ups: list[dict[str, Any]] = []
+        for label, trigger_price in [("take_profit", take_profit_price), ("stop_loss", stop_loss_price)]:
+            if trigger_price is None:
+                continue
+            child_id = _safe_child_client_order_id(client_order_id, label)
+            tp_sl_body: dict[str, Any] = {
+                "symbol": market_symbol,
+                "type": label,
+                "side": 2,
+                "size": 0,
+                "trigger_price": exchange.price_to_precision(symbol, trigger_price),
+                "executive_price": exchange.price_to_precision(symbol, trigger_price),
+                "price_type": 1,
+                "plan_category": 2,
+                "category": "market",
+            }
+            if child_id:
+                tp_sl_body["client_order_id"] = child_id
+            follow_ups.append({
+                "label": label,
+                "path": "/contract/private/submit-tp-sl-order",
+                "body": tp_sl_body,
+            })
+
+        return {
+            "mode": "dry_run",
+            "entry": {
+                "path": _BITMART_DIRECT_FUTURES_ORDER_PATH,
+                "headers": safe_headers,
+                "body": entry_body,
+            },
+            "follow_up_count": len(follow_ups),
+            "follow_ups": follow_ups,
+        }
 
     def cancel_order(self, *, order_id: str, symbol: str | None = None) -> ExecutionOrder:
         exchange = self._get_exchange()

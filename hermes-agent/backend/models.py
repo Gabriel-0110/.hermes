@@ -402,6 +402,7 @@ class ExecutionOrder(BaseModel):
     reduce_only: bool | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class ExecutionTrade(BaseModel):
@@ -445,6 +446,7 @@ class NormalizedResponse(BaseModel):
 class OrderBookLevel(BaseModel):
     price: float
     amount: float
+    exchange: str | None = None
 
 
 class OrderBookSnapshot(BaseModel):
@@ -468,6 +470,7 @@ class OrderBookSnapshot(BaseModel):
 
 class FundingRateEntry(BaseModel):
     symbol: str
+    exchange: str | None = None
     funding_rate: float | None = None
     funding_time: str | None = None
     mark_price: float | None = None

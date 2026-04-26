@@ -97,7 +97,7 @@ def place_order(payload: dict | None = None) -> dict:
             error: str,
             detail: str,
             reason: RiskRejectionReason,
-            execution_mode: Literal["paper", "live"],
+            execution_mode: Literal["disabled", "paper", "live"],
             warnings: list[str],
             payload: dict | None = None,
         ) -> dict:
@@ -126,6 +126,15 @@ def place_order(payload: dict | None = None) -> dict:
             )
 
         safety = evaluate_execution_safety(approval_id=args.approval_id)
+        if safety.execution_mode == "disabled":
+            return _blocked_payload(
+                error="trading_disabled",
+                detail="Trading is disabled. Set HERMES_TRADING_MODE to 'paper' or 'live' to enable.",
+                reason=RiskRejectionReason.LIVE_TRADING_DISABLED,
+                execution_mode="disabled",
+                warnings=["Trading mode is set to 'disabled'. No orders will be placed or simulated."],
+                payload={"blocking_stage": "disabled_mode_guard"},
+            )
         if safety.execution_mode != "live":
             return _blocked_payload(
                 error="paper_mode_active",

@@ -101,6 +101,9 @@ def orchestrator_handler(event: TradingEventEnvelope) -> bool:
     if ev.event_type == "execution_requested":
         return _handle_execution_requested(event)
 
+    if ev.event_type == "whale_flow":
+        return _handle_whale_flow(event)
+
     # Other event types are logged and acknowledged.
     logger.debug("orchestrator_handler: no specific handler for %s — acking", ev.event_type)
     return True
@@ -496,6 +499,30 @@ def _handle_execution_requested(event: TradingEventEnvelope) -> bool:
     from backend.trading.safety import evaluate_execution_safety
 
     safety = evaluate_execution_safety(approval_id=payload.get("approval_id"))
+
+    if safety.execution_mode == "disabled":
+        logger.warning(
+            "execution_handler: trading disabled — rejecting execution_requested for symbol=%s",
+            ev.symbol,
+        )
+        from backend.trading.models import ExecutionOutcome, ExecutionResult, RiskRejectionReason
+
+        _record_execution_event(
+            event,
+            outcome=ExecutionOutcome.from_result(
+                request,
+                ExecutionResult.blocked(
+                    symbol=request.symbol,
+                    execution_mode="paper",
+                    reason=RiskRejectionReason.LIVE_TRADING_DISABLED,
+                    correlation_id=ev.correlation_id,
+                    workflow_id=ev.workflow_id,
+                    error_message="Trading is disabled.",
+                    payload={**payload, "blocking_stage": "disabled_mode_guard"},
+                ),
+            ),
+        )
+        return True
 
     # Hard kill-switch check
     if safety.kill_switch_active:
@@ -1112,6 +1139,135 @@ def _record_execution_event(
                 logger.warning("execution_handler: failed to refresh portfolio after execution outcome: %s", exc)
     except Exception as exc:
         logger.warning("execution_handler: failed to record live execution event: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Whale-flow handler
+# ---------------------------------------------------------------------------
+
+
+def _handle_whale_flow(event: TradingEventEnvelope) -> bool:
+    """Score a whale_flow event and dispatch an execution proposal when actionable."""
+    ev = event.event
+    payload = ev.payload or {}
+    symbol = str(ev.symbol or payload.get("symbol") or "").strip().upper()
+    if not symbol:
+        logger.warning("whale_flow_worker: missing symbol for event_id=%s", ev.event_id)
+        return True
+
+    try:
+        from backend.observability.service import get_observability_service
+        from backend.strategies.whale_follower import score_whale_follower, build_whale_follow_proposal
+        from backend.trading import dispatch_trade_proposal
+
+        observability = get_observability_service()
+        regime = _fetch_market_regime()
+
+        candidate = score_whale_follower(symbol, payload, regime=regime)
+        observability.record_agent_decision(
+            agent_name="whale_flow_worker",
+            status="completed",
+            decision=candidate.direction,
+            summarized_input={"event": ev.model_dump(mode="json")},
+            summarized_output={"candidate": candidate.model_dump(mode="json")},
+            metadata={"strategy_name": "whale_follower"},
+        )
+
+        if candidate.direction == "watch" or candidate.confidence < 0.25:
+            logger.info(
+                "whale_flow_worker: candidate filtered for symbol=%s direction=%s confidence=%.2f",
+                symbol, candidate.direction, candidate.confidence,
+            )
+            observability.record_execution_event(
+                status="ignored",
+                event_type="whale_flow_filtered",
+                symbol=symbol,
+                correlation_id=ev.correlation_id,
+                workflow_run_id=ev.workflow_id,
+                payload={"reason": "watch_or_low_confidence", "candidate": candidate.model_dump(mode="json")},
+            )
+            return True
+
+        proposal = build_whale_follow_proposal(candidate, payload)
+        dispatch_result = dispatch_trade_proposal(proposal)
+        logger.info(
+            "whale_flow_worker: dispatched proposal_id=%s symbol=%s status=%s",
+            proposal.proposal_id, symbol, dispatch_result.status,
+        )
+        observability.record_execution_event(
+            status=dispatch_result.status,
+            event_type="whale_flow_dispatched",
+            symbol=symbol,
+            correlation_id=ev.correlation_id,
+            workflow_run_id=ev.workflow_id,
+            payload={
+                "candidate": candidate.model_dump(mode="json"),
+                "proposal_id": proposal.proposal_id,
+                "dispatch_status": dispatch_result.status,
+            },
+        )
+        return True
+
+    except Exception as exc:
+        logger.exception("whale_flow_worker: failed for event_id=%s symbol=%s: %s", ev.event_id, symbol, exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Funding spread watcher
+# ---------------------------------------------------------------------------
+
+
+def run_funding_spread_watcher_once(
+    symbols: list[str],
+    venues: list[str],
+    threshold: float,
+) -> list[dict]:
+    """Check cross-venue funding spreads and publish events for those exceeding *threshold*."""
+    from backend.tools.get_funding_rates import get_funding_rates
+    from backend.event_bus.publisher import publish_trading_event
+    from backend.event_bus.models import TradingEvent
+
+    response = get_funding_rates({"symbols": symbols, "limit": 1, "venue": venues})
+    if not (response.get("meta", {}).get("ok")):
+        logger.warning("funding_spread_watcher: get_funding_rates failed")
+        return []
+
+    data = response.get("data", {})
+    results = []
+
+    for entry in data.get("symbols", []):
+        spread = entry.get("funding_spread_8h")
+        if spread is None or spread < threshold:
+            continue
+
+        event = TradingEvent(
+            event_type="funding_spread_detected",
+            source="funding_spread_watcher",
+            producer="backend.event_bus.workers",
+            symbol=entry.get("symbol", ""),
+            payload={
+                "symbol": entry["symbol"],
+                "funding_spread_8h": spread,
+                "funding_spread_bps": entry.get("funding_spread_bps"),
+                "max_funding_venue": entry.get("max_funding_venue"),
+                "max_funding_exchange": entry.get("max_funding_exchange"),
+                "max_funding_rate": entry.get("max_funding_rate"),
+                "min_funding_venue": entry.get("min_funding_venue"),
+                "min_funding_exchange": entry.get("min_funding_exchange"),
+                "min_funding_rate": entry.get("min_funding_rate"),
+                "requested_venues": venues,
+                "threshold": threshold,
+                "trade_hint": {
+                    "short_perp_venue": entry.get("max_funding_venue"),
+                    "long_perp_venue": entry.get("min_funding_venue"),
+                },
+            },
+        )
+        publish_trading_event(event)
+        results.append(entry)
+
+    return results
 
 
 # ---------------------------------------------------------------------------

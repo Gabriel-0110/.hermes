@@ -35,7 +35,22 @@ def normalize_trade_proposal(payload: TradeProposal | dict[str, Any]) -> TradePr
 
 def evaluate_trade_proposal(proposal: TradeProposal) -> PolicyDecision:
     proposal = normalize_trade_proposal(proposal)
-    execution_mode = "paper" if current_trading_mode() != "live" else "live"
+    mode = current_trading_mode()
+
+    if mode == "disabled":
+        return PolicyDecision(
+            proposal_id=proposal.proposal_id,
+            status="rejected",
+            execution_mode="disabled",
+            approved=False,
+            approved_size_usd=0.0,
+            requires_operator_approval=False,
+            blocking_reasons=["Trading is disabled. Set HERMES_TRADING_MODE to 'paper' or 'live' to enable."],
+            rejection_reasons=[RiskRejectionReason.LIVE_TRADING_DISABLED],
+            policy_trace=["execution_mode=disabled", "trading_disabled=blocked"],
+        )
+
+    execution_mode = "paper" if mode != "live" else "live"
     trace: list[str] = [f"execution_mode={execution_mode}"]
     warnings = _portfolio_warnings()
     blockers: list[str] = []
