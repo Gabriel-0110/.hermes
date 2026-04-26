@@ -39,7 +39,7 @@ def test_position_monitor_snapshot_reuses_snapshot_metadata(tmp_path, monkeypatc
     _seed_snapshot(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "backend.trading.position_manager.get_observability_service",
-        lambda: SimpleNamespace(get_execution_event_history=lambda limit=20: []),
+        lambda: SimpleNamespace(get_execution_event_history=lambda limit=20: [], record_movement=lambda **kwargs: None),
     )
 
     snapshot = get_position_monitor_snapshot()
@@ -56,7 +56,7 @@ def test_paper_execution_updates_persisted_position_state(tmp_path, monkeypatch)
     _seed_snapshot(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "backend.trading.position_manager.get_observability_service",
-        lambda: SimpleNamespace(get_execution_event_history=lambda limit=20: []),
+        lambda: SimpleNamespace(get_execution_event_history=lambda limit=20: [], record_movement=lambda **kwargs: None),
     )
 
     outcome = ExecutionOutcome(

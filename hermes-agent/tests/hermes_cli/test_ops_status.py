@@ -48,6 +48,8 @@ def test_latest_smoke_artifact_reports_not_available(tmp_path, monkeypatch) -> N
 
 def test_platform_runtime_check_fails_when_enabled_profile_missing_token(monkeypatch) -> None:
     monkeypatch.setattr(ops_status, "get_env_value", lambda key: {"TELEGRAM_ENABLED_PROFILES": "orchestrator"}.get(key, ""))
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_ENABLED_PROFILES", raising=False)
 
     result = ops_status._platform_runtime_check(
         platform="telegram",
@@ -65,6 +67,8 @@ def test_platform_runtime_check_fails_when_enabled_profile_missing_token(monkeyp
 
 def test_platform_runtime_check_reports_not_configured_without_enable_list(monkeypatch) -> None:
     monkeypatch.setattr(ops_status, "get_env_value", lambda key: "")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_ENABLED_PROFILES", raising=False)
 
     result = ops_status._platform_runtime_check(
         platform="telegram",

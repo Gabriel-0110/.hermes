@@ -124,6 +124,7 @@ class TestWslSystemdOperational:
 class TestSupportsSystemdServicesWSL:
     """Test that supports_systemd_services() handles WSL correctly."""
 
+    @pytest.mark.skipif(sys.platform != "linux", reason="Linux-only test")
     def test_wsl_with_systemd(self, monkeypatch):
         """WSL + working systemd → True."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)
@@ -140,6 +141,7 @@ class TestSupportsSystemdServicesWSL:
         monkeypatch.setattr(gateway, "_wsl_systemd_operational", lambda: False)
         assert gateway.supports_systemd_services() is False
 
+    @pytest.mark.skipif(sys.platform != "linux", reason="Linux-only test")
     def test_native_linux(self, monkeypatch):
         """Native Linux (not WSL) → True without checking systemd."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)

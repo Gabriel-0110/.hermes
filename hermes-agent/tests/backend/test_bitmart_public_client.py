@@ -30,24 +30,24 @@ def test_get_recent_trades_uses_market_trade_endpoint_and_parses_side(monkeypatc
             {
                 "code": 1000,
                 "message": "Ok",
-                "data": [
-                    {
-                        "symbol": "BTCUSDT",
-                        "price": "77726.7",
-                        "qty": "0.002",
-                        "quote_qty": "155.45",
-                        "time": 1777111587,
-                        "is_buyer_maker": True,
-                    },
-                    {
-                        "symbol": "BTCUSDT",
-                        "price": "77726.8",
-                        "qty": "0.003",
-                        "quote_qty": "233.18",
-                        "time": 1777111588,
-                        "is_buyer_maker": False,
-                    },
-                ],
+                "data": {
+                    "trades": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "deal_price": "77726.7",
+                            "deal_vol": "0.002",
+                            "way": 2,
+                            "create_time": 1777111587000,
+                        },
+                        {
+                            "symbol": "BTCUSDT",
+                            "deal_price": "77726.8",
+                            "deal_vol": "0.003",
+                            "way": 1,
+                            "create_time": 1777111588000,
+                        },
+                    ]
+                },
             }
         )
 
@@ -56,7 +56,7 @@ def test_get_recent_trades_uses_market_trade_endpoint_and_parses_side(monkeypatc
 
     snapshot = client.get_recent_trades("BTCUSDT", limit=2)
 
-    assert seen["path"] == "/contract/public/market-trade"
+    assert seen["path"] == "/contract/public/trades"
     assert snapshot.symbol == "BTCUSDT"
     assert len(snapshot.trades) == 2
     assert snapshot.trades[0].side == "sell"

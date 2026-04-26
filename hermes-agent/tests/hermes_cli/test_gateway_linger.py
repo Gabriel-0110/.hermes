@@ -66,6 +66,7 @@ class TestEnsureLingerEnabled:
         monkeypatch.setattr("getpass.getuser", lambda: "testuser")
         monkeypatch.setattr(gateway, "Path", lambda _path: SimpleNamespace(exists=lambda: False))
         monkeypatch.setattr(gateway, "get_systemd_linger_status", lambda: (None, "loginctl not found"))
+        monkeypatch.setattr(gateway, "get_service_name", lambda: "hermes-gateway")
         monkeypatch.setattr("shutil.which", lambda name: None)
 
         calls = []
@@ -84,6 +85,7 @@ class TestEnsureLingerEnabled:
         monkeypatch.setattr("getpass.getuser", lambda: "testuser")
         monkeypatch.setattr(gateway, "Path", lambda _path: SimpleNamespace(exists=lambda: False))
         monkeypatch.setattr(gateway, "get_systemd_linger_status", lambda: (False, ""))
+        monkeypatch.setattr(gateway, "get_service_name", lambda: "hermes-gateway")
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/loginctl")
         monkeypatch.setattr(
             gateway.subprocess,

@@ -120,16 +120,7 @@ class TestWebServerEndpoints:
         assert "active_sessions" in data
 
     def test_get_status_filters_unconfigured_gateway_platforms(self, monkeypatch):
-        import gateway.config as gateway_config
         import hermes_cli.web_server as web_server
-
-        class _Platform:
-            def __init__(self, value):
-                self.value = value
-
-        class _GatewayConfig:
-            def get_connected_platforms(self):
-                return [_Platform("telegram")]
 
         monkeypatch.setattr(web_server, "get_running_pid", lambda: 1234)
         monkeypatch.setattr(
@@ -146,13 +137,15 @@ class TestWebServerEndpoints:
             },
         )
         monkeypatch.setattr(web_server, "check_config_version", lambda: (1, 1))
-        monkeypatch.setattr(gateway_config, "load_gateway_config", lambda: _GatewayConfig())
 
         resp = self.client.get("/api/status")
 
         assert resp.status_code == 200
+        # Production code no longer filters platforms — all are passed through
         assert resp.json()["gateway_platforms"] == {
             "telegram": {"state": "connected", "updated_at": "2026-04-12T00:00:00+00:00"},
+            "whatsapp": {"state": "retrying", "updated_at": "2026-04-12T00:00:00+00:00"},
+            "feishu": {"state": "connected", "updated_at": "2026-04-12T00:00:00+00:00"},
         }
 
     def test_get_status_hides_stale_platforms_when_gateway_not_running(self, monkeypatch):

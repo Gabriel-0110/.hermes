@@ -73,6 +73,8 @@ def test_ingestion_service_stores_plain_text_raw_payload(tmp_path):
 def test_tradingview_router_rejects_bad_secret_and_accepts_good_secret(tmp_path, monkeypatch):
     monkeypatch.setenv("TRADINGVIEW_WEBHOOK_SECRET", "shared-secret")
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
 
     app = FastAPI()
     app.include_router(tradingview_router)

@@ -24,6 +24,7 @@ class _ImmediateTimer:
 def test_schedule_paper_shadow_for_request_records_fill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr("backend.integrations.execution.mode.threading.Timer", _ImmediateTimer)
     monkeypatch.setattr("backend.integrations.execution.mode._fetch_shadow_mid_price", lambda symbol: 101.5)
     monkeypatch.setattr(
@@ -61,8 +62,9 @@ def test_schedule_paper_shadow_for_request_records_fill(monkeypatch, tmp_path) -
 
     assert scheduled == ["2026-04-25T12:01:00+00:00"]
 
-    ensure_time_series_schema(get_engine())
-    with session_scope() as session:
+    db_path = tmp_path / "state.db"
+    ensure_time_series_schema(get_engine(db_path=db_path))
+    with session_scope(db_path=db_path) as session:
         rows = HermesTimeSeriesRepository(session).list_paper_shadow_fills(limit=10)
 
     assert len(rows) == 1
@@ -78,6 +80,7 @@ def test_schedule_paper_shadow_for_request_records_fill(monkeypatch, tmp_path) -
 def test_schedule_paper_shadow_for_approved_request_records_fill(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr("backend.integrations.execution.mode.threading.Timer", _ImmediateTimer)
     monkeypatch.setattr("backend.integrations.execution.mode._fetch_shadow_mid_price", lambda symbol: 99.5)
     monkeypatch.setattr(
@@ -106,8 +109,9 @@ def test_schedule_paper_shadow_for_approved_request_records_fill(monkeypatch, tm
 
     assert scheduled == ["2026-04-25T12:02:00+00:00"]
 
-    ensure_time_series_schema(get_engine())
-    with session_scope() as session:
+    db_path = tmp_path / "state.db"
+    ensure_time_series_schema(get_engine(db_path=db_path))
+    with session_scope(db_path=db_path) as session:
         rows = HermesTimeSeriesRepository(session).list_paper_shadow_fills(limit=10)
 
     assert len(rows) == 1
