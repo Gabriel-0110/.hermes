@@ -144,7 +144,8 @@ def test_learning_loop_dry_run(tmp_db: str) -> None:
     summary = run_learning_loop(database_url=tmp_db, dry_run=True)
 
     assert summary.dry_run is True
-    assert summary.overrides_written == 1
+    assert summary.overrides_proposed == 1
+    assert summary.overrides_written == 0
     assert len(summary.overrides) == 1
 
     with session_scope(database_url=tmp_db) as session:

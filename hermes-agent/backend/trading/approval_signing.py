@@ -18,7 +18,12 @@ _DEFAULT_SECRET = "hermes-approval-default-key"
 
 
 def _get_secret() -> str:
-    return os.getenv(_SECRET_ENV, _DEFAULT_SECRET)
+    secret = os.getenv(_SECRET_ENV)
+    if not secret:
+        if os.getenv("HERMES_TRADING_MODE", "paper").strip().lower() == "live":
+            raise RuntimeError(f"{_SECRET_ENV} must be set when trading mode is 'live'")
+        return _DEFAULT_SECRET
+    return secret
 
 
 def sign_callback(action: str, approval_id: str) -> str:

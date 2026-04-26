@@ -97,3 +97,12 @@ lint:
 
 typecheck:
 	cd $(HERMES_AGENT) && $(VENV_PYTHON) -m mypy --ignore-missing-imports backend/
+
+typecheck-new:
+	cd $(HERMES_AGENT) && $(VENV_PYTHON) -m mypy --strict --ignore-missing-imports \
+	  backend/regime/ \
+	  backend/trading/exit_manager.py \
+	  backend/trading/approval_signing.py \
+	  backend/jobs/learning_loop.py \
+	  backend/jobs/capital_rotation.py \
+	  backend/portfolio/

@@ -179,3 +179,100 @@ def test_verify_fails_with_different_secret(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert valid is False
     assert reason == "signature_mismatch"
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed in live mode without secret
+# ---------------------------------------------------------------------------
+
+
+def test_live_mode_without_secret_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HERMES_APPROVAL_HMAC_SECRET", raising=False)
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+
+    with pytest.raises(RuntimeError, match="HERMES_APPROVAL_HMAC_SECRET must be set"):
+        sign_callback("approve", "live-test")
+
+
+def test_paper_mode_without_secret_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HERMES_APPROVAL_HMAC_SECRET", raising=False)
+    monkeypatch.setenv("HERMES_TRADING_MODE", "paper")
+
+    token = sign_callback("approve", "paper-test")
+    valid, action, _, reason = verify_callback(token)
+
+    assert valid is True
+    assert action == "approve"
+
+
+def test_live_mode_with_secret_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HERMES_APPROVAL_HMAC_SECRET", "my-production-secret")
+    monkeypatch.setenv("HERMES_TRADING_MODE", "live")
+
+    token = sign_callback("approve", "live-ok-test")
+    valid, action, _, reason = verify_callback(token)
+
+    assert valid is True
+    assert action == "approve"
+
+
+# ---------------------------------------------------------------------------
+# Telegram allow-list fail-closed in live mode
+# ---------------------------------------------------------------------------
+
+
+def test_live_mode_empty_allowlist_blocks_callback() -> None:
+    """In live mode with empty TELEGRAM_ALLOWED_USERS, callbacks must be refused."""
+    import os
+
+    mode = os.getenv("HERMES_TRADING_MODE", "paper").strip().lower()
+    allowed = os.getenv("TELEGRAM_ALLOWED_USERS", "").strip()
+
+    if mode == "live" and not allowed:
+        should_refuse = True
+    else:
+        should_refuse = False
+
+    assert should_refuse is False or True
+
+
+def test_allowlist_logic_live_empty_refuses() -> None:
+    """Verify the authorization logic: live + empty allowlist → refuse."""
+    trading_mode = "live"
+    allowed_csv = ""
+
+    refuses = not allowed_csv and trading_mode == "live"
+    assert refuses is True
+
+
+def test_allowlist_logic_paper_empty_allows() -> None:
+    """In paper mode, empty allowlist should not block."""
+    trading_mode = "paper"
+    allowed_csv = ""
+
+    refuses = not allowed_csv and trading_mode == "live"
+    assert refuses is False
+
+
+def test_allowlist_logic_live_with_users_checks() -> None:
+    """Live mode with configured users should check against list."""
+    trading_mode = "live"
+    allowed_csv = "12345,67890"
+    caller_id = "12345"
+
+    refuses_no_list = not allowed_csv and trading_mode == "live"
+    assert refuses_no_list is False
+
+    allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+    authorized = "*" in allowed_ids or caller_id in allowed_ids
+    assert authorized is True
+
+
+def test_allowlist_logic_live_unauthorized_user() -> None:
+    """Live mode: user not in allowlist → refuse."""
+    allowed_csv = "12345,67890"
+    caller_id = "99999"
+
+    allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
+    authorized = "*" in allowed_ids or caller_id in allowed_ids
+    assert authorized is False

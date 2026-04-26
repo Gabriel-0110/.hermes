@@ -37,7 +37,7 @@ model_list:
 
   - model_name: research-default
     litellm_params:
-      model: openrouter/google/gemma-4
+      model: openrouter/google/gemma-3-27b-it
       api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 4096
@@ -52,16 +52,16 @@ model_list:
   - model_name: research-fallback-2
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-4-5
-      api_key: os.environ/USER2_API_KEY
+      api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 200000
 
   - model_name: portfolio-default
     litellm_params:
-      model: openrouter/risknet/risknet
+      model: openrouter/qwen/qwen3-30b-a3b:free
       api_key: os.environ/USER1_API_KEY
     model_info:
-      max_input_tokens: 4096
+      max_input_tokens: 131072
 
   - model_name: portfolio-fallback-1
     litellm_params:
@@ -73,7 +73,7 @@ model_list:
   - model_name: portfolio-fallback-2
     litellm_params:
       model: openrouter/qwen/qwen3-9b
-      api_key: os.environ/USER2_API_KEY
+      api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 32768
 
@@ -108,14 +108,14 @@ model_list:
 
   - model_name: strategy-fallback-1
     litellm_params:
-      model: openrouter/google/gemma-4
-      api_key: os.environ/USER2_API_KEY
+      model: openrouter/google/gemma-3-27b-it
+      api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 4096
 
   - model_name: strategy-fallback-2
     litellm_params:
-      model: openrouter/google/gemma-4
+      model: openrouter/google/gemma-3-27b-it
       api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 4096

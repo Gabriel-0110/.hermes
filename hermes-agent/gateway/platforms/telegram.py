@@ -1576,6 +1576,9 @@ class TelegramAdapter(BasePlatformAdapter):
 
             caller_id = str(getattr(query.from_user, "id", ""))
             allowed_csv = os.getenv("TELEGRAM_ALLOWED_USERS", "").strip()
+            if not allowed_csv and os.getenv("HERMES_TRADING_MODE", "paper").strip().lower() == "live":
+                await query.answer(text="⛔ Authorization not configured.")
+                return
             if allowed_csv:
                 allowed_ids = {uid.strip() for uid in allowed_csv.split(",") if uid.strip()}
                 if "*" not in allowed_ids and caller_id not in allowed_ids:

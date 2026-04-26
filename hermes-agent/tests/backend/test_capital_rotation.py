@@ -214,8 +214,8 @@ def test_run_capital_rotation_dispatches_proposals(monkeypatch: pytest.MonkeyPat
 
     assert summary.proposals_dispatched > 0
     for d in dispatched:
-        assert d["require_operator_approval"] is True
-        assert d["source_agent"] == "capital_rotation"
+        assert d.require_operator_approval is True
+        assert d.source_agent == "capital_rotation"
 
 
 def test_run_capital_rotation_custom_universe(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -257,7 +257,7 @@ def test_rebalance_proposals_always_require_approval(monkeypatch: pytest.MonkeyP
     run_capital_rotation()
 
     for d in dispatched:
-        assert d["require_operator_approval"] is True
+        assert d.require_operator_approval is True
 
 
 # ===========================================================================

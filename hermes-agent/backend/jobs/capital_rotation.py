@@ -167,31 +167,33 @@ def run_capital_rotation(
 
 def _dispatch_rebalance_proposal(target: AllocationTarget, total_equity_usd: float) -> None:
     from backend.trading.execution_service import dispatch_trade_proposal
+    from backend.trading.models import TradeProposal
 
     delta_usd = abs(target.delta_pct) * total_equity_usd
-    side = "buy" if target.delta_pct > 0 else "sell"
+    side: str = "buy" if target.delta_pct > 0 else "sell"
 
-    dispatch_trade_proposal({
-        "source_agent": "capital_rotation",
-        "symbol": f"{target.symbol}USDT",
-        "side": side,
-        "order_type": "market",
-        "requested_size_usd": round(delta_usd, 2),
-        "rationale": (
+    proposal = TradeProposal(
+        source_agent="capital_rotation",
+        symbol=f"{target.symbol}USDT",
+        side=side,  # type: ignore[arg-type]
+        order_type="market",
+        requested_size_usd=round(delta_usd, 2),
+        rationale=(
             f"Capital rotation: rebalance {target.symbol} from "
             f"{target.current_pct:.1%} to {target.target_pct:.1%} "
             f"(edge posterior={target.edge.posterior_mean:.4f})."
         ),
-        "strategy_id": "capital_rotation",
-        "strategy_template_id": "capital_rotation",
-        "require_operator_approval": True,
-        "metadata": {
+        strategy_id="capital_rotation",
+        strategy_template_id="capital_rotation",
+        require_operator_approval=True,
+        metadata={
             "rebalance": True,
             "target_pct": target.target_pct,
             "current_pct": target.current_pct,
             "delta_bps": target.delta_bps,
         },
-    })
+    )
+    dispatch_trade_proposal(proposal)
 
 
 def main() -> int:

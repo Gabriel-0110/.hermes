@@ -33,6 +33,7 @@ class LearningLoopSummary:
     strategies_processed: int = 0
     overrides_written: int = 0
     overrides_unchanged: int = 0
+    overrides_proposed: int = 0
     dry_run: bool = False
     overrides: list[dict[str, Any]] = field(default_factory=list)
 
@@ -121,7 +122,7 @@ def run_learning_loop(
             summary.overrides.append(override_info)
 
             if dry_run:
-                summary.overrides_written += 1
+                summary.overrides_proposed += 1
                 continue
 
             existing = session.scalars(

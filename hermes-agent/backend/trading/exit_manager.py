@@ -72,6 +72,7 @@ def evaluate_trailing_stop(
         return ExitTrigger(symbol=state.symbol, trigger_type="trailing_stop")
 
     state = update_peak_trough(state, mark_price)
+    assert state.trailing_stop_distance_bps is not None
 
     if state.side == "buy":
         if state.peak_price is None:

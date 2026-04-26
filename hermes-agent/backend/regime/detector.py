@@ -138,7 +138,7 @@ def get_cached_regime(*, universe_tag: str = "default") -> RegimeSnapshot | None
         from backend.redis_client import get_redis_client
         client = get_redis_client()
         raw = client.get(f"hermes:regime:{universe_tag}")
-        if raw:
+        if raw and isinstance(raw, str):
             return RegimeSnapshot.model_validate_json(raw)
     except Exception:
         logger.debug("Redis regime cache miss or unavailable for %s", universe_tag)
