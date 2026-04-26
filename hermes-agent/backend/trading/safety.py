@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass, field
 
-from backend.integrations.execution.mode import current_trading_mode, is_disabled_mode, live_trading_blockers
+from backend.integrations.execution.mode import current_trading_mode, live_trading_blockers
 from backend.redis_client import get_redis_client
 
 _KILL_SWITCH_KEY = "hermes:risk:kill_switch"

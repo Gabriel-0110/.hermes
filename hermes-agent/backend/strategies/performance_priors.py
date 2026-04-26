@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import timezone
 from threading import Lock
 
 from sqlalchemy import desc, select

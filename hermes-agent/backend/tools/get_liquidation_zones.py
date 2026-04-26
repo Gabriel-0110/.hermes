@@ -5,7 +5,6 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from backend.integrations.derivatives.bitmart_public_client import BitMartPublicClient
-from backend.models import LiquidationZonesSnapshot
 from backend.tools._helpers import envelope, provider_ok, run_tool, validate
 
 

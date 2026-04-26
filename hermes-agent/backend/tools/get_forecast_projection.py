@@ -30,7 +30,6 @@ class GetForecastProjectionInput(BaseModel):
 def _chronos_projection(closes: list[float], horizon: int) -> list[dict[str, float | int]]:
     """Run Chronos-2 probabilistic forecast. Returns low/median/high scenarios."""
     import torch
-    import numpy as np
     from chronos import BaseChronosPipeline
 
     pipeline = BaseChronosPipeline.from_pretrained(

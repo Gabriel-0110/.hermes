@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from backend.db import HermesTimeSeriesRepository, ensure_time_series_schema, session_scope
 from backend.db.session import get_engine
 from backend.integrations.base import IntegrationError
-from backend.integrations.execution import configured_execution_venues, reconcile_exchange_balances
+from backend.integrations.execution import reconcile_exchange_balances
 from backend.models import PortfolioState
 from backend.tools._helpers import envelope, run_tool, validate
 

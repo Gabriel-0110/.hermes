@@ -49,7 +49,6 @@ def get_risk_approval(payload: dict) -> dict:
 
         # --- Load risk limits ---
         max_position_usd: float | None = None
-        drawdown_limit_pct: float = 10.0
         carry_trade_max_equity_pct: float = 30.0
         try:
             redis = get_redis_client()
@@ -57,7 +56,6 @@ def get_risk_approval(payload: dict) -> dict:
             if limits_raw:
                 limits = json.loads(limits_raw)
                 max_position_usd = limits.get("max_position_usd")
-                drawdown_limit_pct = float(limits.get("drawdown_limit_pct", 10.0))
             carry_trade_max_equity_pct = float(limits.get("carry_trade_max_equity_pct", 30.0))
         except Exception as exc:
             logger.warning("get_risk_approval: limits read failed: %s", exc)

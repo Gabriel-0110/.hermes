@@ -894,7 +894,6 @@ def _place_live_order(event: TradingEventEnvelope, *, request=None) -> bool:
 
     try:
         from backend.integrations.execution import VenueExecutionClient
-        from backend.integrations.base import IntegrationError, MissingCredentialError
 
         client = VenueExecutionClient("bitmart")
         if not client.configured:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,6 +17,7 @@ from backend.portfolio.rebalancer import (
     DEFAULT_UNIVERSE,
     MAX_ALLOCATION_PCT,
     MIN_REBALANCE_BPS,
+    AllocationTarget,
     RebalanceProposal,
     SymbolEdge,
     compute_rebalance,

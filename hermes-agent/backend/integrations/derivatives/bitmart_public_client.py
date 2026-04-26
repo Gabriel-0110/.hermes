@@ -234,8 +234,6 @@ class BitMartPublicClient:
         contract = contracts[0] if contracts else {}
 
         funding_rate = _safe_float(contract.get("funding_rate"))
-        change_24h = _safe_float(contract.get("change_24h"))
-        expected_funding = _safe_float(contract.get("expected_funding_rate"))
 
         # Derive a rough dominant side from funding rate sign:
         # Positive funding = longs pay shorts → crowded long, risk = long liquidation

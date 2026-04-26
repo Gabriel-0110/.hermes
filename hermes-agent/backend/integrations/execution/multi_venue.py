@@ -1216,8 +1216,6 @@ class VenueExecutionClient:
         self.require_credentials()
         exchange = self._get_exchange()
         self._ensure_markets_loaded()
-        market = exchange.market(symbol)
-        market_symbol = market.get("id") or symbol
 
         body: dict[str, Any] = {
             "order_id": order_id,
@@ -1355,10 +1353,11 @@ class VenueExecutionClient:
     def get_execution_status(self, *, order_id: str | None = None, symbol: str | None = None) -> ExecutionStatus:
         signed_write_probe = None
         if self.exchange_id == "bitmart" and self.account_type in {"contract", "futures", "swap"}:
-            signed_write_probe = lambda: self.check_futures_write_capability(
-                symbol=symbol or os.getenv("BITMART_WRITE_PROBE_SYMBOL", "BTCUSDT"),
-                verify_remote=_is_truthy_env(os.getenv("HERMES_BITMART_VERIFY_SIGNED_WRITES")),
-            )
+            def signed_write_probe() -> FuturesWriteCapabilityCheck:
+                return self.check_futures_write_capability(
+                    symbol=symbol or os.getenv("BITMART_WRITE_PROBE_SYMBOL", "BTCUSDT"),
+                    verify_remote=_is_truthy_env(os.getenv("HERMES_BITMART_VERIFY_SIGNED_WRITES")),
+                )
         readiness = classify_live_execution_readiness(
             self,
             private_read_probe=lambda: self.get_exchange_balances(),

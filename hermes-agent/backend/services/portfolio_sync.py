@@ -13,12 +13,11 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
 
 from backend.db import HermesTimeSeriesRepository, ensure_time_series_schema, session_scope
 from backend.db.session import get_engine
 from backend.integrations.execution.ccxt_client import CCXTExecutionClient
-from backend.integrations.base import IntegrationError, MissingCredentialError
+from backend.integrations.base import MissingCredentialError
 from backend.models import ExchangeBalances, PortfolioAsset, PortfolioState
 
 logger = logging.getLogger(__name__)

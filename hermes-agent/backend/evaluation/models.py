@@ -10,7 +10,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
-    from backend.workflows.models import TradingInputEvent, TradingWorkflowState
+    pass
 
 
 def _utcnow() -> datetime:
