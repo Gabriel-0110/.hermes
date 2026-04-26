@@ -137,5 +137,6 @@ include = ["agent", "tools", "tools.*", "backend", "backend.*", "hermes_cli", "g
 testpaths = ["tests"]
 markers = [
     "integration: marks tests requiring external services (API keys, Modal, etc.)",
+    "bitmart_sandbox: marks tests requiring BitMart sandbox credentials and HERMES_BITMART_SANDBOX=1",
 ]
-addopts = "-m 'not integration' -n auto"
+addopts = "-m 'not integration and not bitmart_sandbox' -n auto"

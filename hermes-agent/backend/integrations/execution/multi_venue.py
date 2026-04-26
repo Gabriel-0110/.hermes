@@ -309,7 +309,8 @@ class VenueExecutionClient:
 
         override_url = os.getenv(f"{self._env_prefix}_BASE_URL", "").strip()
         if override_url:
-            config["urls"] = {"api": override_url.rstrip("/")}
+            base = override_url.rstrip("/")
+            config["urls"] = {"api": {"spot": base, "swap": base}}
 
         try:
             return exchange_cls(config)

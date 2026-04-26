@@ -89,6 +89,9 @@ dev-check:
 test:
 	cd $(HERMES_AGENT) && $(VENV_PYTEST) tests/backend tests/tools tests/hermes_cli -q
 
+test-bitmart-sandbox:
+	cd $(HERMES_AGENT) && HERMES_BITMART_SANDBOX=1 $(VENV_PYTEST) -m bitmart_sandbox tests/integration/test_bitmart_sandbox_bracket.py -q
+
 lint:
 	cd $(HERMES_AGENT) && $(VENV_PYTHON) -m ruff check .
 

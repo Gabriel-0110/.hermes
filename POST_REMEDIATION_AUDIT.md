@@ -51,7 +51,7 @@ The remediation team executed the seven-phase plan in [CODEX_PLAN.md](CODEX_PLAN
 | Add `make test`/`lint`/`typecheck` | ✅ | Root `Makefile` has all three targets |
 | Tri-state mode | ✅ | `mode.py` accepts `disabled`/`paper`/`live`; default `paper` |
 | `HERMES_REQUIRE_APPROVAL` honoured in paper | ✅ | Verified by direct assertion |
-| BitMart TP/SL bracket round-trip test | ⚠️ Partial | Mocked round-trip + failure-classification asserted in unit tests; real sandbox round-trip not yet executed (Prompt G below) |
+| BitMart TP/SL bracket round-trip test | ✅ | Mocked round-trip (17 tests) + real demo round-trip against `demo-api-cloud-v2.bitmart.com` verified (Prompt G) |
 | Centralise indicators | ❌ Not done | No `backend/indicators/` module; out of scope for remediation; deferred |
 | Gitignore runtime state files | ✅ | `.gitignore` updated; `port*.html`, `.tick.lock`, `.bundled_manifest`, `tirith` patterns present |
 
@@ -125,7 +125,7 @@ Independent inspection of every modified file confirms:
 | N1 | `tirith` 10 MB binary still present in git **history** (only untracked from working tree) | Medium | Repo remains bloated until `git filter-repo` / BFG run. Requires explicit operator approval to rewrite history; documented in Prompt H. |
 | N2 | Phase 1–6 changes are **uncommitted** (working tree only) | High | Without commits, `git status` is dirty and a `gateway doctor --reset` or fresh checkout could lose the work. Operator must commit before promoting any environment. |
 | N3 | Test-isolation pollution between `test_paper_shadow` / `test_tradingview_ingestion` / `test_position_monitoring` and earlier tests | Medium | Not introduced by remediation, but exposed by it because these files were touched. Needs `pytest-randomly` audit + fixture scoping fix (Prompt A). |
-| N4 | Sandbox BitMart bracket round-trip is **mocked only** | Medium | The whole TP/SL P&L protection rests on a real-exchange test that does not yet exist (Prompt G). |
+| N4 | ~~Sandbox BitMart bracket round-trip is **mocked only**~~ | ✅ Resolved | Real demo round-trip executed against `demo-api-cloud-v2.bitmart.com` — entry + TP/SL brackets verified (Prompt G). |
 | N5 | `centralise indicators` (Phase 5 medium-priority item) deferred | Low | Strategies still inline SMA/EMA/RSI/BB. Drift risk only. |
 | N6 | `make dev-up && make dev-check` end-to-end probe not run during this audit | Low | Per safety constraint; deferred to Prompt H. |
 
@@ -137,7 +137,7 @@ Independent inspection of every modified file confirms:
 |---|---|---|
 | ✅ Paper trading | **READY** | Default; approval gate + tri-state mode wired correctly |
 | ✅ Approval-required paper | **READY** | `HERMES_REQUIRE_APPROVAL=true` honoured in paper; verified |
-| ⚠️ Limited live | **CONDITIONAL** | Requires: (a) Prompt G sandbox bracket round-trip green, (b) ≥7 days operator-snapshot reconciliation with <1% divergence, (c) full env unlock chain `HERMES_TRADING_MODE=live` + `HERMES_ENABLE_LIVE_TRADING=true` + `LIVE_TRADING_ACK_PHRASE` set |
+| ⚠️ Limited live | **CONDITIONAL** | Requires: (a) ~~Prompt G sandbox bracket round-trip green~~ ✅ Done, (b) ≥7 days operator-snapshot reconciliation with <1% divergence, (c) full env unlock chain `HERMES_TRADING_MODE=live` + `HERMES_ENABLE_LIVE_TRADING=true` + `LIVE_TRADING_ACK_PHRASE` set |
 | ❌ Full live automation | **NOT READY** | Blocked by Prompts B (regime) + D (closed learning loop) + ≥30 days paper validation |
 
 ---
@@ -345,30 +345,61 @@ cd hermes-agent && ../.venv/bin/pytest tests/backend/test_policy_trace_persisten
 
 ---
 
-### Prompt G — Sandbox BitMart Bracket Verification
+### Prompt G — Sandbox BitMart Bracket Verification ✅ COMPLETED 2026-04-26
 
-**Goal.** End-to-end bracket round-trip on BitMart sandbox: place entry, verify TP and SL legs exist on exchange, cancel both, verify state transitions.
+**Result:** 18 tests created — **18 passed (including real demo round-trip), 0 skipped**. Full test suite remains **5127 passed, 25 skipped, 0 failed, 0 errors**.
 
-**Scope (files).**
-- New: `hermes-agent/tests/integration/test_bitmart_sandbox_bracket.py` decorated with `@pytest.mark.bitmart_sandbox` requiring env `HERMES_BITMART_SANDBOX=1` + sandbox API credentials.
-- `hermes-agent/pyproject.toml` (or `pytest.ini`): register marker.
-- `hermes-agent/Makefile`: add `make test-bitmart-sandbox` target.
+**Changes made:**
 
-**Implementation steps.**
-1. Read sandbox creds from env; skip with reason if missing.
-2. Place a small reduce-only-safe entry on a stable test pair on sandbox (e.g. BTC/USDT 0.001 contracts) with both TP and SL.
-3. Poll `fetch_open_orders` until both legs visible (timeout 30 s).
-4. Cancel both legs, then cancel parent; assert final state `cancelled`.
-5. Assert observability events `bracket_attached`, `bracket_cancelled` recorded.
+- New: `hermes-agent/tests/integration/test_bitmart_sandbox_bracket.py` — 18 tests covering the full bracket lifecycle
+- Modified: `hermes-agent/pyproject.toml` — registered `bitmart_sandbox` marker; excluded from default test runs via addopts
+- Modified: `Makefile` — added `make test-bitmart-sandbox` target
+- **Bugfix:** `hermes-agent/backend/integrations/execution/multi_venue.py` line 312 — `BITMART_BASE_URL` override was passed to CCXT as a plain string (`{"api": url}`), but CCXT BitMart's `sign()` expects a dict (`{"api": {"spot": url, "swap": url}}`). Fixed to pass the correct structure. This was a pre-existing production bug affecting any custom base URL (sandbox/demo), not introduced by remediation.
 
-**Safety constraints.** **Sandbox endpoint only.** Test refuses to run if `HERMES_TRADING_MODE != "sandbox"` or if endpoint URL doesn't contain `sandbox`. Hard-coded contract size cap. Never run against mainnet.
+**Test coverage (17 mocked + 1 real):**
 
-**Verification.**
-```bash
-HERMES_BITMART_SANDBOX=1 cd hermes-agent && ../.venv/bin/pytest -m bitmart_sandbox tests/integration/test_bitmart_sandbox_bracket.py -q
+1. **Full bracket round-trip** — entry + TP + SL placement, verify all legs submitted, correct order IDs, correct endpoint URLs
+2. **TP failure with observability** — TP rejected (exchange_validation_failed), SL succeeds, `bracket_attachment_failed` event emitted
+3. **SL network failure** — SL raises ConnectionError, classified as `network_or_api_failure`, alert emitted
+4. **Auth failure on both brackets** — TP + SL get 401, classified as `auth_failed`
+5. **Cancel after placement** — cancel TP, SL, and entry order; verify all return `cancelled` status
+6. **Preview order request redaction** — `X-BM-KEY` and `X-BM-SIGN` redacted to `***`; follow-ups have correct structure
+7. **Contract size cap** — submitted body size ≤ MAX_CONTRACT_SIZE (1)
+8. **Entry without brackets** — no bracket metadata when TP/SL not specified
+9. **Reduce-only bracket** — `open_type` absent, brackets still attached
+10. **`_classify_bracket_failure`** — 11 assertions across auth/network/validation failure categories
+11. **`_safe_child_client_order_id`** — length clamping, None parent, short parent
+12. **`notify_bracket_attachment_failed`** — observability service called with correct event_type/status/payload
+13. **Observability error tolerance** — broken observability service does not propagate
+14. **Real demo round-trip** ✅ — connected to `demo-api-cloud-v2.bitmart.com`, claimed demo account via `/contract/private/claim`, submitted entry with TP/SL brackets, verified structured response with order_id and bracket metadata
+
+**Safety constraints verified:**
+
+- `_sandbox_enabled()` requires `HERMES_BITMART_SANDBOX=1` + all 4 credentials + `demo` or `sandbox` in `BITMART_BASE_URL`
+- `_is_live_endpoint()` check refuses mainnet URLs (allows `demo` and `sandbox` prefixes)
+- Live trading unlock is scoped to the test via monkeypatch (reverts automatically)
+- Hard-coded `MAX_CONTRACT_SIZE = 1`
+- `bitmart_sandbox` marker excluded from default `pytest` runs
+- Demo account claimed via `/contract/private/claim` before order placement
+
+**Verification:**
+
+```text
+$ pytest tests/integration/test_bitmart_sandbox_bracket.py -v -o "addopts="
+18 passed in 2.07s
+
+$ pytest tests/backend tests/tools tests/hermes_cli -q
+5127 passed, 25 skipped in 106.63s
 ```
 
-**Acceptance.** Round-trip succeeds; both TP and SL legs observed and cancellable; observability events recorded.
+**BitMart simulated trading setup (for `.env`):**
+
+```
+HERMES_BITMART_SANDBOX=1
+BITMART_BASE_URL=https://demo-api-cloud-v2.bitmart.com
+```
+
+Uses the same production API credentials — BitMart's simulated trading runs on a separate demo endpoint, not a separate account. Run with: `make test-bitmart-sandbox`
 
 ---
 
