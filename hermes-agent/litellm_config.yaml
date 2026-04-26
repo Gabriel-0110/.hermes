@@ -37,31 +37,31 @@ model_list:
 
   - model_name: research-default
     litellm_params:
-      model: openrouter/google/gemma-3-27b-it
-      api_key: os.environ/USER1_API_KEY
-    model_info:
-      max_input_tokens: 4096
-
-  - model_name: research-fallback-1
-    litellm_params:
-      model: openrouter/anthropic/claude-sonnet-4-5
-      api_key: os.environ/USER1_API_KEY
-    model_info:
-      max_input_tokens: 200000
-
-  - model_name: research-fallback-2
-    litellm_params:
-      model: openrouter/anthropic/claude-sonnet-4-5
-      api_key: os.environ/USER1_API_KEY
-    model_info:
-      max_input_tokens: 200000
-
-  - model_name: portfolio-default
-    litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      model: openrouter/google/gemma-3-27b-it:free
       api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 131072
+
+  - model_name: research-fallback-1
+    litellm_params:
+      model: openrouter/nousresearch/hermes-3-llama-3.1-405b:free
+      api_key: os.environ/USER1_API_KEY
+    model_info:
+      max_input_tokens: 131072
+
+  - model_name: research-fallback-2
+    litellm_params:
+      model: openrouter/qwen/qwen3-next-80b-a3b-instruct:free
+      api_key: os.environ/USER1_API_KEY
+    model_info:
+      max_input_tokens: 262144
+
+  - model_name: portfolio-default
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct:free
+      api_key: os.environ/USER1_API_KEY
+    model_info:
+      max_input_tokens: 65536
 
   - model_name: portfolio-fallback-1
     litellm_params:
@@ -79,17 +79,17 @@ model_list:
 
   - model_name: risk-default
     litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      model: openrouter/meta-llama/llama-3.3-70b-instruct:free
       api_key: os.environ/USER1_API_KEY
     model_info:
-      max_input_tokens: 131072
+      max_input_tokens: 65536
 
   - model_name: risk-fallback-1
     litellm_params:
-      model: openrouter/anthropic/claude-opus-4
+      model: openrouter/qwen/qwen3-next-80b-a3b-instruct:free
       api_key: os.environ/USER1_API_KEY
     model_info:
-      max_input_tokens: 200000
+      max_input_tokens: 262144
 
   - model_name: risk-fallback-2
     litellm_params:
@@ -101,24 +101,24 @@ model_list:
 
   - model_name: strategy-default
     litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      model: openrouter/meta-llama/llama-3.3-70b-instruct:free
+      api_key: os.environ/USER1_API_KEY
+    model_info:
+      max_input_tokens: 65536
+
+  - model_name: strategy-fallback-1
+    litellm_params:
+      model: openrouter/google/gemma-3-27b-it:free
       api_key: os.environ/USER1_API_KEY
     model_info:
       max_input_tokens: 131072
 
-  - model_name: strategy-fallback-1
-    litellm_params:
-      model: openrouter/google/gemma-3-27b-it
-      api_key: os.environ/USER1_API_KEY
-    model_info:
-      max_input_tokens: 4096
-
   - model_name: strategy-fallback-2
     litellm_params:
-      model: openrouter/google/gemma-3-27b-it
+      model: openrouter/nousresearch/hermes-3-llama-3.1-405b:free
       api_key: os.environ/USER1_API_KEY
     model_info:
-      max_input_tokens: 4096
+      max_input_tokens: 131072
 
 litellm_settings:
   drop_params: true

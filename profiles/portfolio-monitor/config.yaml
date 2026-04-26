@@ -2,7 +2,7 @@ model:
   default: portfolio-default
   provider: litellm
   base_url: ''
-  context_length: 131072
+  context_length: 65536
 providers: {}
 litellm_gateway:
   enabled: true
