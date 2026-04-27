@@ -1,6 +1,6 @@
 # Hermes — Project Usage and Operations Guide
 
-> **Version:** 1.0 | **Date:** 2026-04-27 | **Active Profile:** orchestrator
+> **Version:** 1.1 | **Date:** 2026-04-27 | **Active Profile:** orchestrator
 
 ---
 
@@ -399,11 +399,11 @@ After `make dev-check`, you should see:
 
 ### 3.3 LiteLLM Model Routing
 
-The LiteLLM gateway (`litellm_config.yaml`) defines 5 model routes with fallback chains:
+The LiteLLM gateway (`litellm_config.yaml`) defines 6 model routes with fallback chains:
 
 | Route | Primary Model | Fallback 1 | Fallback 2 |
 | --- | --- | --- | --- |
-| `orchestrator-default` | Claude Opus 4.6 (Bedrock) | Claude Sonnet 4.6 (Bedrock) | Claude Haiku 4.5 (Bedrock) |
+| `orchestrator-default` | Claude Opus 4.6 (Bedrock) | Claude Sonnet 4.6 (Bedrock) | Qwen3 Coder 480B (OpenRouter) |
 | `research-default` | Claude Sonnet 4.6 (Bedrock) | Claude Haiku 4.5 (Bedrock) | Qwen3 Coder 480B (OpenRouter) |
 | `portfolio-default` | Claude Sonnet 4.6 (Bedrock) | Claude Haiku 4.5 (Bedrock) | Qwen3 Coder 480B (OpenRouter) |
 | `risk-default` | Claude Sonnet 4.6 (Bedrock) | Claude Haiku 4.5 (Bedrock) | Qwen 3.5 9B (LM Studio local) |
@@ -441,7 +441,7 @@ The LiteLLM gateway (`litellm_config.yaml`) defines 5 model routes with fallback
 | Portfolio sync | Ready | `backend/services/portfolio_sync.py` | Exchange↔DB portfolio reconciliation |
 | Portfolio snapshots | Ready | `backend/jobs/portfolio_sync.py` | Periodic balance/position snapshotting |
 | Drawdown guard | Ready | `backend/jobs/drawdown_guard.py` | Automatic drawdown monitoring & kill switch |
-| Execution health check | Ready | `backend/jobs/execution_health_check.py` | API connectivity & readiness checks |
+| Execution health check | Ready | `backend/jobs/execution_health_check.py` | API connectivity, balances, open orders, readiness status with markdown report |
 | Strategy evaluator | Ready | `backend/jobs/strategy_evaluator.py` | Periodic strategy scoring runs |
 | Whale tracker | Ready | `backend/jobs/whale_tracker.py` | On-chain whale activity monitor |
 | Copy trader curator | Ready | `backend/jobs/copy_trader_curator.py` | Leaderboard scoring for copy trading |
@@ -472,9 +472,9 @@ The LiteLLM gateway (`litellm_config.yaml`) defines 5 model routes with fallback
 
 | Integration | Client Location | API Key Required | Data Provided |
 | --- | --- | --- | --- |
-| CoinGecko | `backend/integrations/market_data/coingecko_client.py` | Optional (rate limited without) | Prices, market cap, volume |
+| CoinGecko | `backend/integrations/market_data/coingecko_client.py` | Optional (rate limited without) | Prices, market cap, volume. Has retry with exponential backoff (5 attempts). |
 | CoinMarketCap | `backend/integrations/market_data/coinmarketcap_client.py` | Yes | Rankings, market overview |
-| TwelveData | `backend/integrations/market_data/twelvedata_client.py` | Yes | Technical indicators, OHLCV |
+| TwelveData | `backend/integrations/market_data/twelvedata_client.py` | Yes | Technical indicators (RSI, ATR, EMA computed), OHLCV |
 | CryptoPanic | `backend/integrations/news_sentiment/cryptopanic_client.py` | Yes | Crypto news feed |
 | NewsAPI | `backend/integrations/news_sentiment/newsapi_client.py` | Yes | General news headlines |
 | LunarCrush | `backend/integrations/news_sentiment/lunarcrush_client.py` | Yes | Social sentiment metrics |
@@ -561,7 +561,7 @@ The gateway connects to configured platforms (Telegram, Slack, Discord) and rout
 | Script | Location | Purpose | Schedule |
 | --- | --- | --- | --- |
 | `drawdown_guard.py` | `scripts/` | Monitors drawdown, triggers kill switch if threshold breached | Cron: every 15m |
-| `execution_health_check.py` | `scripts/` | Checks BitMart API readiness and position state | Cron: every 15m |
+| `execution_health_check.py` | `scripts/`, `backend/jobs/` | Checks BitMart API connectivity, balances, open orders; outputs markdown health report | Cron: every 15m |
 | `funding_rate_monitor.py` | `scripts/` | Collects and aggregates funding rate data across exchanges | Cron: every 240m |
 | `portfolio_sync.py` | `scripts/` | Syncs live portfolio from BitMart to TimescaleDB | Cron: every 5m |
 | `strategy_evaluator.py` | `scripts/` | Runs strategy scoring cycle on watchlist symbols | Cron: every 240m |
@@ -684,6 +684,8 @@ curl -X POST http://localhost:8000/api/v1/risk/kill-switch/activate \
 ### 6.3 Dashboard API (Agent Backend, Port 9119)
 
 The hermes-agent dashboard exposes its own API at `:9119/api/`. This is what the product API bridges to. The dashboard is the actual execution engine — the product API at `:8000` delegates to it.
+
+**Note:** The API Docker service (`hermes-api`) now passes exchange credentials (`BITMART_*`) and market data provider keys (`COINGECKO_API_KEY`, `COINMARKETCAP_API_KEY`, `TWELVEDATA_API_KEY`, `CRYPTOPANIC_API_KEY`, `NEWS_API_KEY`, `ETHERSCAN_API_KEY`) through to enable direct bridge calls that need external connectivity.
 
 ---
 
@@ -885,7 +887,7 @@ These tools are available to agents via the `hermes-cli` toolset. Grouped by cat
 | `get_crypto_prices` | Current cryptocurrency prices |
 | `get_ohlcv` | OHLCV candlestick data |
 | `get_market_overview` | Broad market summary |
-| `get_indicator_snapshot` | Technical indicator values |
+| `get_indicator_snapshot` | Technical indicator values (SMA20, EMA20, RSI14, ATR14) |
 | `get_order_book` | Order book depth |
 | `get_recent_trades` | Recent trade history |
 | `get_funding_rates` | Perpetual funding rates across exchanges |
@@ -966,7 +968,7 @@ These tools are available to agents via the `hermes-cli` toolset. Grouped by cat
 | Tool | Purpose |
 | --- | --- |
 | `list_strategies` | Available strategy definitions |
-| `evaluate_strategy` | Run a strategy scorer |
+| `evaluate_strategy` | Run a strategy scorer (returns ScoredCandidate with chronos_score + sizing_hints) |
 | `list_trade_candidates` | Current scored candidates |
 | `run_strategy_cycle` | Full strategy evaluation cycle |
 | `get_chronos_score` | Chronos forecast for a symbol |
@@ -1551,6 +1553,8 @@ ls profiles/orchestrator/cron/output/
            confidence=0.65,
            rationale="...",
            strategy_name="my_strategy",
+           chronos_score=0.72,       # optional: Chronos forecast score
+           sizing_hints={"max_usd": 500},  # optional: sizing guidance
        )
    ```
 
@@ -1687,7 +1691,7 @@ ls profiles/orchestrator/cron/output/
 
 ### 16.1 Repository Structure (Key Files)
 
-```bash
+```text
 ~/.hermes/
 ├── Makefile                           # Dev stack orchestration
 ├── docker-compose.dev.yml             # Unified Docker stack (7 services)
@@ -1820,4 +1824,4 @@ graph TD
 
 ---
 
-*Generated 2026-04-27. Based on actual repository inspection of `~/.hermes/`.*
+*Generated 2026-04-27, updated to v1.1 same day. Based on actual repository inspection of `~/.hermes/`.*
