@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.db import HermesTimeSeriesRepository, ensure_time_series_schema, session_scope
@@ -142,12 +143,21 @@ def get_risk_state(_: dict | None = None) -> dict:
             current_equity_usd = portfolio.get("data", {}).get("total_equity_usd")
 
             if current_equity_usd is not None:
-                # Update peak if higher than recorded
                 peak_raw = redis.get(_PEAK_EQUITY_KEY)
-                peak_equity_usd = float(peak_raw) if peak_raw else current_equity_usd
+                if peak_raw:
+                    try:
+                        parsed = json.loads(peak_raw)
+                        peak_equity_usd = float(parsed["equity"]) if isinstance(parsed, dict) else float(parsed)
+                    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                        peak_equity_usd = current_equity_usd
+                else:
+                    peak_equity_usd = current_equity_usd
                 if current_equity_usd > peak_equity_usd:
                     peak_equity_usd = current_equity_usd
-                    redis.set(_PEAK_EQUITY_KEY, str(peak_equity_usd))
+                    redis.set(
+                        _PEAK_EQUITY_KEY,
+                        json.dumps({"equity": round(peak_equity_usd, 2), "updated_at": datetime.now(UTC).isoformat()}),
+                    )
 
                 if peak_equity_usd and peak_equity_usd > 0:
                     current_drawdown_pct = round((peak_equity_usd - current_equity_usd) / peak_equity_usd * 100, 2)

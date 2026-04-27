@@ -225,6 +225,19 @@ services:
       HERMES_TRADING_MODE: ${HERMES_TRADING_MODE:-paper}
       HERMES_ENABLE_LIVE_TRADING: ${HERMES_ENABLE_LIVE_TRADING:-false}
       HERMES_LIVE_TRADING_ACK: ${HERMES_LIVE_TRADING_ACK:-}
+      # Exchange connectivity
+      BITMART_API_KEY: ${BITMART_API_KEY:-}
+      BITMART_API_SECRET: ${BITMART_API_SECRET:-}
+      BITMART_SECRET: ${BITMART_SECRET:-}
+      BITMART_API_MEMO: ${BITMART_API_MEMO:-}
+      BITMART_MEMO: ${BITMART_MEMO:-}
+      # Market data providers
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      COINMARKETCAP_API_KEY: ${COINMARKETCAP_API_KEY:-}
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      CRYPTOPANIC_API_KEY: ${CRYPTOPANIC_API_KEY:-}
+      NEWS_API_KEY: ${NEWS_API_KEY:-${NEWSAPI_KEY:-}}
+      ETHERSCAN_API_KEY: ${ETHERSCAN_API_KEY:-}
       # Keep the local auth bypass explicit. `.env.dev.example` sets it to
       # true for the canonical local-only workflow, but the compose file no
       # longer silently enables it by default.

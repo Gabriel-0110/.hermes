@@ -71,7 +71,35 @@ class TwelveDataClient(BaseIntegrationClient):
     def get_indicator_snapshot(self, symbol: str, interval: str) -> IndicatorSnapshot:
         bars = self.get_ohlcv(symbol, interval, outputsize=30)
         closes = [bar.close for bar in reversed(bars)]
-        sma_20 = sum(closes[-20:]) / min(len(closes[-20:]), 20) if closes else None
-        ema_20 = sma_20
-        return IndicatorSnapshot(symbol=symbol, interval=interval, sma_20=sma_20, ema_20=ema_20)
+        sma_20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else None
+        ema_20 = self._compute_ema(closes, 20) if len(closes) >= 20 else sma_20
+
+        rsi_14 = self._fetch_indicator_value(symbol, interval, "rsi", 14)
+        atr_14 = self._fetch_indicator_value(symbol, interval, "atr", 14)
+
+        return IndicatorSnapshot(symbol=symbol, interval=interval, sma_20=sma_20, ema_20=ema_20, rsi_14=rsi_14, atr_14=atr_14)
+
+    def _fetch_indicator_value(self, symbol: str, interval: str, indicator: str, period: int) -> float | None:
+        try:
+            payload = self.request(
+                "GET",
+                f"/{indicator}",
+                params={"symbol": symbol, "interval": interval, "time_period": period, "outputsize": 1, "format": "JSON"},
+            )
+            values = payload.get("values", [])
+            if values and isinstance(values, list):
+                return float(values[0].get(indicator, 0))
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _compute_ema(closes: list[float], period: int) -> float | None:
+        if len(closes) < period:
+            return None
+        multiplier = 2 / (period + 1)
+        ema = sum(closes[:period]) / period
+        for price in closes[period:]:
+            ema = (price - ema) * multiplier + ema
+        return ema
 

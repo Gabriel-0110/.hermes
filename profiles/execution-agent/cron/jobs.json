@@ -1,0 +1,70 @@
+{
+  "jobs": [
+    {
+      "id": "acc1025f9d5a",
+      "name": "Execution Health Check",
+      "prompt": "Analyze execution health check. Report API status, position count, open orders. If API is down, flag CRITICAL. If new unknown positions appear, flag ALERT. If healthy, respond with [SILENT].",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "execution_health_check.py",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 15,
+        "display": "every 15m"
+      },
+      "schedule_display": "every 15m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-26T19:22:51.309941-05:00",
+      "next_run_at": "2026-04-26T19:37:51.309952-05:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "slack:C0ASGRJPMDK",
+      "origin": null
+    },
+    {
+      "id": "bb2096fba397",
+      "name": "Position Stop Guard",
+      "prompt": "Analyze position stop guard. Report any naked/unknown positions immediately. Check if stop levels are being respected. If all positions match risk plan, respond with [SILENT]. If any position is unprotected or unknown, flag it LOUD.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "position_stop_guard.py",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 10,
+        "display": "every 10m"
+      },
+      "schedule_display": "every 10m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-26T19:22:51.451900-05:00",
+      "next_run_at": "2026-04-26T19:32:51.451911-05:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "slack:C0ASGRJPMDK",
+      "origin": null
+    }
+  ]
+}

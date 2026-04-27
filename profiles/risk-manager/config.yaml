@@ -2,7 +2,7 @@ model:
   default: risk-default
   provider: litellm
   base_url: ''
-  context_length: 65536
+  context_length: 200000
 providers: {}
 litellm_gateway:
   enabled: true
@@ -264,6 +264,7 @@ discord:
 slack:
   require_mention: true
   free_response_channels:
+  - C0AU980UBEF
   - C0AV9UK29FA
 whatsapp: {}
 approvals:

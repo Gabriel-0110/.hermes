@@ -56,7 +56,9 @@ def get_event_risk_summary(payload: dict | None = None) -> dict:
         args = GetEventRiskSummaryInput.model_validate(payload or {})
         crypto_news = get_crypto_news({"query": args.query})
         general_news = get_general_news({"query": args.query, "limit": 5})
-        headlines = [row["title"] for row in crypto_news["data"][:3]] + [row["title"] for row in general_news["data"][:3]]
+        crypto_data = crypto_news.get("data", []) if isinstance(crypto_news.get("data"), list) else []
+        general_data = general_news.get("data", []) if isinstance(general_news.get("data"), list) else []
+        headlines = [row["title"] for row in crypto_data[:3] if isinstance(row, dict) and "title" in row] + [row["title"] for row in general_data[:3] if isinstance(row, dict) and "title" in row]
         matched_keywords = _matched_keywords(headlines)
         event_time = _parse_event_time(args.event_time_iso)
         minutes_to_event = None
@@ -90,7 +92,9 @@ def get_event_risk_summary(payload: dict | None = None) -> dict:
             minutes_to_event=minutes_to_event,
             event_time=event_time.isoformat() if event_time is not None else None,
         )
-        providers = crypto_news["meta"]["providers"] + general_news["meta"]["providers"]
+        crypto_providers = crypto_news.get("meta", {}).get("providers", [])
+        general_providers = general_news.get("meta", {}).get("providers", [])
+        providers = (crypto_providers if isinstance(crypto_providers, list) else []) + (general_providers if isinstance(general_providers, list) else [])
         return envelope("get_event_risk_summary", providers, summary.model_dump(mode="json"))
 
     return run_tool("get_event_risk_summary", _run)

@@ -29,6 +29,8 @@ class ScoredCandidate(BaseModel):
     rationale: str
     strategy_name: str
     strategy_version: str = "1.0.0"
+    chronos_score: float | None = None
+    sizing_hints: dict | None = None
 
 
 StrategyScorer = Callable[..., ScoredCandidate]

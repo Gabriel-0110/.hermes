@@ -18,7 +18,8 @@ def get_volatility_metrics(payload: dict) -> dict:
     def _run() -> dict:
         args = validate(GetVolatilityMetricsInput, payload)
         bars_payload = get_ohlcv(args.model_dump())
-        bars = bars_payload["data"]
+        raw_data = bars_payload.get("data", [])
+        bars = raw_data if isinstance(raw_data, list) else []
         closes = [row["close"] for row in reversed(bars) if row.get("close") is not None]
         returns = []
         for idx in range(1, len(closes)):

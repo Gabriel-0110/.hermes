@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
-from backend.integrations.base import BaseIntegrationClient
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from backend.integrations.base import BaseIntegrationClient, IntegrationError
 from backend.integrations.provider_profiles import PROVIDER_PROFILES
 from backend.models import MarketOverview, OHLCVBar, PriceQuote
 
@@ -27,6 +31,22 @@ class CoinGeckoClient(BaseIntegrationClient):
 
     def auth_headers(self) -> dict[str, str]:
         return {"x-cg-pro-api-key": self._api_key}
+
+    @retry(
+        retry=retry_if_exception_type((httpx.HTTPError, IntegrationError)),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(5),
+        reraise=True,
+    )
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return super().request(method, path, params=params, headers=headers)
 
     def get_prices(self, symbols: list[str], currency: str = "usd") -> list[PriceQuote]:
         payload = self.request(
