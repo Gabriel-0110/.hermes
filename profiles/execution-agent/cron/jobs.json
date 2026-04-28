@@ -18,18 +18,18 @@
       "schedule_display": "every 15m",
       "repeat": {
         "times": null,
-        "completed": 0
+        "completed": 22
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-04-26T19:22:51.309941-05:00",
-      "next_run_at": "2026-04-26T19:37:51.309952-05:00",
-      "last_run_at": null,
-      "last_status": null,
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-04-28T13:52:53.414429-05:00",
+      "last_run_at": "2026-04-28T13:37:53.414429-05:00",
+      "last_status": "error",
+      "last_error": "ValueError: Model execution-default has a context window of 32,768 tokens, which is below the minimum 64,000 required by Hermes Agent.  Choose a model with at least 64K context, or set model.context_length in config.yaml to override.",
+      "last_delivery_error": "platform 'slack' not configured/enabled",
       "deliver": "slack:C0ASGRJPMDK",
       "origin": null
     },
@@ -51,20 +51,21 @@
       "schedule_display": "every 10m",
       "repeat": {
         "times": null,
-        "completed": 0
+        "completed": 34
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-04-26T19:22:51.451900-05:00",
-      "next_run_at": "2026-04-26T19:32:51.451911-05:00",
-      "last_run_at": null,
-      "last_status": null,
-      "last_error": null,
-      "last_delivery_error": null,
+      "next_run_at": "2026-04-28T13:57:59.192766-05:00",
+      "last_run_at": "2026-04-28T13:47:59.192766-05:00",
+      "last_status": "error",
+      "last_error": "ValueError: Model execution-default has a context window of 32,768 tokens, which is below the minimum 64,000 required by Hermes Agent.  Choose a model with at least 64K context, or set model.context_length in config.yaml to override.",
+      "last_delivery_error": "platform 'slack' not configured/enabled",
       "deliver": "slack:C0ASGRJPMDK",
       "origin": null
     }
-  ]
+  ],
+  "updated_at": "2026-04-28T13:47:59.192843-05:00"
 }

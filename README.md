@@ -97,8 +97,8 @@ make dev-up
 make dev-check
 ```
 
-Those commands use the root [Makefile](/Users/openclaw/.hermes/Makefile) and
-[docker-compose.dev.yml](/Users/openclaw/.hermes/docker-compose.dev.yml) to
+Those commands use the root [Makefile](Makefile) and
+[docker-compose.dev.yml](docker-compose.dev.yml) to
 bring up the integrated stack in dependency order.
 
 The intended startup order is:
@@ -120,10 +120,10 @@ make dev-down
 
 More detail lives in:
 
-- [docs/workspace/LOCAL_DEV.md](/Users/openclaw/.hermes/docs/workspace/LOCAL_DEV.md)
-- [docs/workspace/GATEWAY_RUNTIME.md](/Users/openclaw/.hermes/docs/workspace/GATEWAY_RUNTIME.md)
-- [hermes/README.md](/Users/openclaw/.hermes/hermes/README.md)
-- [hermes-agent/README.md](/Users/openclaw/.hermes/hermes-agent/README.md)
+- [docs/workspace/LOCAL_DEV.md](docs/workspace/LOCAL_DEV.md)
+- [docs/workspace/GATEWAY_RUNTIME.md](docs/workspace/GATEWAY_RUNTIME.md)
+- [hermes/README.md](hermes/README.md)
+- [hermes-agent/README.md](hermes-agent/README.md)
 
 ## How To Read The Two Main Subprojects
 
@@ -153,7 +153,7 @@ the long-term product direction points toward `hermes/`.
 ## LiteLLM and Model Routing
 
 The workspace includes a root
-[litellm_config.yaml](/Users/openclaw/.hermes/litellm_config.yaml) because the
+[litellm_config.yaml](litellm_config.yaml) because the
 workspace runtime and docs treat LiteLLM as an important shared integration
 point.
 
@@ -165,8 +165,8 @@ environment configuration.
 
 Related docs:
 
-- [docs/workspace/LITELLM_VIRTUAL_KEYS.md](/Users/openclaw/.hermes/docs/workspace/LITELLM_VIRTUAL_KEYS.md)
-- [hermes-agent/litellm_config.yaml](/Users/openclaw/.hermes/hermes-agent/litellm_config.yaml)
+- [docs/workspace/LITELLM_VIRTUAL_KEYS.md](docs/workspace/LITELLM_VIRTUAL_KEYS.md)
+- [hermes-agent/litellm_config.yaml](hermes-agent/litellm_config.yaml)
 
 ## Files You May See Locally But Should Ignore
 
@@ -214,7 +214,7 @@ That means:
 
 Use the checklist here:
 
-- [docs/workspace/GITHUB_UPLOAD_CHECKLIST.md](/Users/openclaw/.hermes/docs/workspace/GITHUB_UPLOAD_CHECKLIST.md)
+- [docs/workspace/GITHUB_UPLOAD_CHECKLIST.md](docs/workspace/GITHUB_UPLOAD_CHECKLIST.md)
 
 Recommended final checks:
 

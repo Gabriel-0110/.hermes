@@ -31,6 +31,52 @@ _STABLECOINS: frozenset[str] = frozenset(
 _DUST_THRESHOLD = 1e-6
 
 
+def _fetch_futures_positions() -> list[dict]:
+    """Fetch open futures positions directly from BitMart contract API."""
+    import hashlib
+    import hmac
+    import time
+
+    import requests
+
+    api_key = os.getenv("BITMART_API_KEY", "")
+    api_secret = os.getenv("BITMART_SECRET", os.getenv("BITMART_API_SECRET", ""))
+    api_memo = os.getenv("BITMART_MEMO", os.getenv("BITMART_API_MEMO", ""))
+
+    if not all([api_key, api_secret, api_memo]):
+        logger.warning("portfolio_sync: BitMart futures credentials not configured")
+        return []
+
+    timestamp = str(int(time.time() * 1000))
+    body = ""
+    message = f"{timestamp}#{api_memo}#{body}"
+    sign = hmac.new(api_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+    headers = {
+        "X-BM-KEY": api_key,
+        "X-BM-SIGN": sign,
+        "X-BM-TIMESTAMP": timestamp,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        resp = requests.get(
+            "https://api-cloud-v2.bitmart.com/contract/private/position",
+            headers=headers,
+            timeout=10,
+        )
+        data = resp.json()
+        if data.get("code") == 1000:
+            return [
+                p for p in data.get("data", [])
+                if int(p.get("current_amount", "0")) > 0
+            ]
+    except Exception as exc:
+        logger.warning("portfolio_sync: futures position fetch failed: %s", exc)
+
+    return []
+
+
 def _resolve_prices(symbols: list[str]) -> dict[str, float]:
     """Return a best-effort symbol→USD price map for the given assets.
 
@@ -139,6 +185,32 @@ def sync_portfolio_from_exchange(
                 notional_usd=notional,
             )
         )
+
+    # Fetch futures positions and add them
+    futures_positions = _fetch_futures_positions()
+    for fp in futures_positions:
+        symbol = fp.get("symbol", "")
+        amount = int(fp.get("current_amount", "0"))
+        mark = float(fp.get("mark_price", "0"))
+        notional = float(fp.get("current_value", "0"))
+        leverage = fp.get("leverage", "1")
+        pos_type = "LONG" if fp.get("position_type") == 1 else "SHORT"
+
+        exposure_usd += notional
+        positions.append(
+            PortfolioAsset(
+                symbol=f"{symbol} {pos_type} {leverage}x",
+                quantity=float(amount),
+                mark_price=mark,
+                notional_usd=notional,
+            )
+        )
+
+    # Also add futures equity to total if we have futures positions
+    if futures_positions:
+        # Futures account equity already captured via balance fetch
+        # Just ensure exposure is reflected
+        pass
 
     total_equity_usd = cash_usd + exposure_usd
     now_iso = datetime.now(timezone.utc).isoformat()
