@@ -29,6 +29,8 @@ Claude Code Routines (you — supervisor, every few hours)
 | `~/.hermes/profiles/orchestrator/scripts/opportunity_scanner.py` | New trade candidates |
 | `~/.hermes/profiles/orchestrator/scripts/daily_performance_review.py` | P&L, fees, cron logs |
 | `~/.hermes/profiles/orchestrator/scripts/market_intel_briefing.py` | BTC structure, funding, RSI |
+| `~/.hermes/profiles/orchestrator/scripts/deep_dive_report.py` | Per-token conviction report (TVL, unlocks, whale flow, news, BTC corr) — daily cron + on-demand `bin/deep-dive` |
+| `~/.hermes/profiles/orchestrator/config/token_registry.json` | Symbol → CoinGecko / DefiLlama / GitHub mapping for the deep-dive |
 | `~/.hermes/profiles/orchestrator/config.yaml` | Agent config (approvals: off) |
 
 ## How to Run Scripts

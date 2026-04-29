@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# On-demand wrapper for the deep-dive conviction report.
+#
+# Usage:
+#   bin/deep-dive                            # default: top-10 watchlist, full markdown
+#   bin/deep-dive TON,NEAR,RENDER            # ad-hoc symbols (USDT suffix optional)
+#   bin/deep-dive --no-cache TONUSDT         # bypass cache
+#   bin/deep-dive --quiet > /tmp/r.json      # JSON only, no progress noise
+set -euo pipefail
+
+HERMES_ROOT="${HERMES_ROOT:-$HOME/.hermes}"
+PYTHON="$HERMES_ROOT/.venv/bin/python"
+SCRIPT="$HERMES_ROOT/profiles/orchestrator/scripts/deep_dive_report.py"
+
+if [[ ! -x "$PYTHON" ]]; then
+  echo "deep-dive: python venv missing at $PYTHON" >&2
+  exit 1
+fi
+if [[ ! -f "$SCRIPT" ]]; then
+  echo "deep-dive: script missing at $SCRIPT" >&2
+  exit 1
+fi
+
+# If first positional arg looks like a symbol list (no leading dash, contains letters),
+# treat it as --symbols.
+extra=()
+if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
+  raw="$1"; shift
+  # Auto-append USDT for bare tickers.
+  IFS=',' read -ra parts <<< "$raw"
+  fixed=()
+  for p in "${parts[@]}"; do
+    p_upper="$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')"
+    if [[ "$p_upper" != *USDT ]]; then
+      p_upper="${p_upper}USDT"
+    fi
+    fixed+=("$p_upper")
+  done
+  symbols="$(IFS=','; printf '%s' "${fixed[*]}")"
+  extra+=(--symbols "$symbols")
+fi
+
+exec "$PYTHON" "$SCRIPT" "${extra[@]}" "$@"
