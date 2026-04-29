@@ -24,7 +24,7 @@ function prettyDate(value?: string | null): string {
   }
 }
 
-function statusBadge(status: string, approved: boolean) {
+function statusBadge(status: string) {
   if (status === "approved")
     return <Badge className="bg-green-600 text-white">Approved</Badge>;
   if (status === "manual_review")
@@ -104,7 +104,7 @@ export default function DecisionsPage() {
                 <CardTitle className="text-sm font-medium flex items-center gap-2">
                   {statusIcon(t.status)}
                   <span className="font-mono">{t.symbol || "?"}</span>
-                  {statusBadge(t.status, t.approved)}
+                  {statusBadge(t.status)}
                   <Badge variant="outline">{t.execution_mode}</Badge>
                 </CardTitle>
                 <span className="text-xs text-muted-foreground">

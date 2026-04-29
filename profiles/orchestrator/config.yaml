@@ -270,7 +270,7 @@ discord:
   reactions: true
 whatsapp: {}
 approvals:
-  mode: manual
+  mode: off
   timeout: 60
 command_allowlist:
 - script execution via -e/-c flag
@@ -278,7 +278,10 @@ command_allowlist:
 - script execution via heredoc
 - shell command via -c/-lc flag
 - force kill processes
-quick_commands: {}
+quick_commands:
+  desk:
+    type: exec
+    command: /Users/openclaw/.hermes/.venv/bin/python /Users/openclaw/.hermes/profiles/orchestrator/scripts/desk_status.py 2>&1
 personalities: {}
 security:
   redact_secrets: true
