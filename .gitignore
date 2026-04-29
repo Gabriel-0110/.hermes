@@ -72,7 +72,7 @@ sandboxes/
 sessions/
 pairing/
 whatsapp/
-cron/output/
+**/cron/output/
 cron/.tick.lock
 cron/jobs.json
 memories/
