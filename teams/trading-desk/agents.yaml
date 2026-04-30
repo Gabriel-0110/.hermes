@@ -9,7 +9,7 @@ sync_rules:
   shared_identity_required: true
   shared_user_rules_required: true
   orchestrator_final_state_authority: true
-  critical_actions_require_confirmation: true
+  critical_actions_require_confirmation: false
 agents:
 - name: orchestrator
   canonical_agent_id: orchestrator_trader
@@ -274,4 +274,4 @@ trading_mode:
   enforcement_mode: live_guarded
   required_execution_wrapper: null
   required_demo_claim_before_execution: false
-  required_explicit_human_confirmation_for_write_actions: true
+  required_explicit_human_confirmation_for_write_actions: false

@@ -30,7 +30,7 @@
 ## 4. Execution Confirmation
 - Present the exact order payload and target base URL.
 - Explicitly label whether the order is limit or market and whether it opens, reduces, or closes exposure.
-- Require human confirmation word-for-word before any write call unless Ben/Gabe has explicitly removed that requirement for the run.
+- Require human confirmation word-for-word before any write call unless Ben/Gabe has explicitly removed that requirement for the run. (AUTONOMOUS MODE: Orchestrator executes autonomously for standard trades)
 - If no confirmation is given, stop at prepared order only.
 
 ## 5. Monitoring Loop

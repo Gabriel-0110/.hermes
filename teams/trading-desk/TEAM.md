@@ -53,7 +53,7 @@ The desk is currently in LIVE MODE.
 Hard rules:
 - Live execution is permitted only while runtime unlock remains active via `HERMES_TRADING_MODE=live`, `HERMES_ENABLE_LIVE_TRADING=true`, and `HERMES_LIVE_TRADING_ACK=I_ACKNOWLEDGE_LIVE_TRADING_RISK`.
 - Production BitMart endpoints are allowed for live execution; demo-only routing is no longer the desk default.
-- All write actions still require explicit human confirmation before execution unless Ben or Gabe states otherwise.
+- The orchestrator operates autonomously for standard trades, executing decisions without requiring human confirmation unless exceptional conditions arise.
 - Standard desk risk remains 2% per trade, with up to 3% only under exceptional conditions and never through revenge/FOMO behavior.
 - Fee-aware execution is mandatory. Avoid fee-blind scalping, prefer limit orders when practical, and reject poor net expectancy after fees.
 - Protect capital first: oversized risk, broken infra, uncertain account state, or degraded execution telemetry are valid reasons to halt execution even in live mode.

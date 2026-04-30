@@ -18,15 +18,15 @@
       "schedule_display": "every 15m",
       "repeat": {
         "times": null,
-        "completed": 72
+        "completed": 226
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-04-26T19:22:51.309941-05:00",
-      "next_run_at": "2026-04-29T02:30:05.744795-05:00",
-      "last_run_at": "2026-04-29T02:15:05.744795-05:00",
+      "next_run_at": "2026-04-30T17:21:04.170092-05:00",
+      "last_run_at": "2026-04-30T17:06:04.170092-05:00",
       "last_status": "error",
       "last_error": "ValueError: Model execution-default has a context window of 32,768 tokens, which is below the minimum 64,000 required by Hermes Agent.  Choose a model with at least 64K context, or set model.context_length in config.yaml to override.",
       "last_delivery_error": "platform 'slack' not configured/enabled",
@@ -51,15 +51,15 @@
       "schedule_display": "every 10m",
       "repeat": {
         "times": null,
-        "completed": 108
+        "completed": 339
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-04-26T19:22:51.451900-05:00",
-      "next_run_at": "2026-04-29T02:25:08.033463-05:00",
-      "last_run_at": "2026-04-29T02:15:08.033463-05:00",
+      "next_run_at": "2026-04-30T17:16:05.986760-05:00",
+      "last_run_at": "2026-04-30T17:06:05.986760-05:00",
       "last_status": "error",
       "last_error": "ValueError: Model execution-default has a context window of 32,768 tokens, which is below the minimum 64,000 required by Hermes Agent.  Choose a model with at least 64K context, or set model.context_length in config.yaml to override.",
       "last_delivery_error": "platform 'slack' not configured/enabled",
@@ -67,5 +67,5 @@
       "origin": null
     }
   ],
-  "updated_at": "2026-04-29T02:15:08.033572-05:00"
+  "updated_at": "2026-04-30T17:06:05.986849-05:00"
 }

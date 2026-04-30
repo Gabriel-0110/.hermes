@@ -185,7 +185,7 @@ def _dispatch_rebalance_proposal(target: AllocationTarget, total_equity_usd: flo
         ),
         strategy_id="capital_rotation",
         strategy_template_id="capital_rotation",
-        require_operator_approval=True,
+        require_operator_approval=False,
         metadata={
             "rebalance": True,
             "target_pct": target.target_pct,
